@@ -1,0 +1,22 @@
+{
+  // Declaration-emit config used *only* by tsup's `.d.ts` step.
+  //
+  // tsup builds declarations in its own TypeScript program and injects
+  // `baseUrl` into the compiler options it passes along. That collides with
+  // the workspace's composite/project-reference setup two ways: a composite
+  // project rejects the synthesized file list (TS6307), and the injected
+  // `baseUrl` trips TS 6's deprecation error (TS5101). Both are artefacts of
+  // tsup's harness, not of this package's types — `pnpm typecheck`
+  // (`tsc --build`) is what actually validates them, against ./tsconfig.json.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "declaration": true,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "ignoreDeprecations": "6.0",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"]
+}

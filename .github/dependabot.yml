@@ -1,0 +1,58 @@
+version: 2
+
+# Matches the policy in diagridio/python-ai and diagridio/java-ai: daily
+# checks, a 7-day cooldown so a freshly-published bad version is not proposed
+# immediately, patch updates ignored (they arrive with the next minor anyway,
+# and PR volume across a large AI/gRPC dependency tree is otherwise
+# unmanageable), and no grouping — one PR per dependency keeps `deps-check.yaml`
+# able to attribute a break to a single bump.
+updates:
+  # GitHub Actions used by the workflows. Every `uses:` in this repo is pinned to
+  # a released tag, so these PRs are how the pins move.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+
+  # npm — workspace root. One lockfile covers the whole workspace, so this entry
+  # sees the root devDependencies (toolchain + test harness).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+
+  # npm — @diagrid/agent-core. Listed separately from the root so its Dapr and
+  # OpenTelemetry ranges get their own PRs: those are the bumps most likely to
+  # break the telemetry-compat guard, and attributing a failure to one of them is
+  # much easier when it arrives alone.
+  - package-ecosystem: "npm"
+    directory: "/packages/core"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+
+  # npm — @diagrid/agent-mastra. Add one of these blocks per new adapter so each
+  # framework's SDK bump is its own reviewable PR.
+  - package-ecosystem: "npm"
+    directory: "/packages/mastra"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]

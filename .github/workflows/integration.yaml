@@ -1,0 +1,71 @@
+name: Integration Tests
+
+# Nightly and on demand only — never on a PR. These tests need a live Dapr
+# sidecar, so they are too slow and too infrastructure-dependent to gate a
+# review on. The PR gate is build.yaml.
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # nightly at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.0.10
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      # Dapr's own runtime is containerised, so this only runs on Linux; the
+      # Windows leg still exercises the suite's non-sidecar paths, which is
+      # where path handling and process spawning differ.
+      - name: Install Dapr CLI
+        if: runner.os == 'Linux'
+        run: wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
+
+      - name: Initialize Dapr
+        if: runner.os == 'Linux'
+        run: dapr init
+
+      - name: Run integration tests
+        run: pnpm test:integration
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: integration-failure-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/dapr-*.log
+            coverage/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Cleanup
+        if: always() && runner.os == 'Linux'
+        run: |
+          # Leave the runner clean so a retry starts from zero.
+          dapr uninstall --all 2>/dev/null || true
+          docker ps -aq --filter "name=dapr_" | xargs -r docker rm -f 2>/dev/null || true

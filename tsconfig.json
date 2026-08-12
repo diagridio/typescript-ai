@@ -1,0 +1,11 @@
+{
+  // Solution-style root config: it owns no files itself, it only wires the
+  // referenced projects together so `tsc --build` type-checks the whole
+  // workspace in dependency order (core -> mastra -> tests).
+  "files": [],
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/mastra" },
+    { "path": "./tests" }
+  ]
+}

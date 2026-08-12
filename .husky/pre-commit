@@ -1,0 +1,3 @@
+# Format and auto-fix staged files only. Kept deliberately cheap — the full
+# gate runs on pre-push (see .husky/pre-push).
+pnpm exec lint-staged

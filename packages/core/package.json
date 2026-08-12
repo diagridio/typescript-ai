@@ -1,0 +1,64 @@
+{
+  "name": "@diagrid/agent-core",
+  "version": "0.1.0",
+  "description": "Shared Dapr Workflow runtime for Diagrid AI agent framework adapters",
+  "keywords": [
+    "dapr",
+    "workflow",
+    "durable",
+    "ai",
+    "agents",
+    "diagrid"
+  ],
+  "homepage": "https://github.com/diagridio/typescript-ai#readme",
+  "bugs": "https://github.com/diagridio/typescript-ai/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/diagridio/typescript-ai.git",
+    "directory": "packages/core"
+  },
+  "license": "BUSL-1.1",
+  "author": "Diagrid Inc.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@dapr/dapr": "3.18.0",
+    "@grpc/grpc-js": "1.14.4",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/exporter-trace-otlp-grpc": "0.221.0",
+    "@opentelemetry/resources": "2.10.0",
+    "@opentelemetry/sdk-trace-node": "2.10.0",
+    "@opentelemetry/semantic-conventions": "1.43.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "tsup": "8.5.1",
+    "typescript": "6.0.3"
+  }
+}

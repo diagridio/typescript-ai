@@ -1,0 +1,14 @@
+# The full gate — the same commands .github/workflows/build.yaml runs, in the
+# same order, so a push that passes here passes CI.
+#
+# On pre-push rather than pre-commit because it takes ~30s: fast enough to run
+# before sharing work, too slow to run on every commit. `lint-staged` handles the
+# per-commit formatting (see .husky/pre-commit).
+#
+# Escape hatch: git push --no-verify
+
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm build
+pnpm test:unit

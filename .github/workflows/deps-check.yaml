@@ -1,0 +1,71 @@
+name: Dependency Conflict Check
+
+# The fast, preventive layer for dependency drift, mirroring
+# python-ai's deps-check.yaml. A Dependabot bump that would break adapter
+# isolation or the OpenTelemetry contract fails here in ~2 minutes instead of
+# surfacing 20 minutes later as a flake in the Ollama e2e lane.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/*
+      - release-*
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deps-check:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: "22" }
+          - { os: ubuntu-latest, node: "24" }
+          - { os: windows-latest, node: "24" }
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.0.10
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      # The equivalent of `uv lock --check`: --frozen-lockfile fails when
+      # pnpm-lock.yaml does not satisfy the manifests.
+      - name: Verify pnpm-lock.yaml is in sync
+        run: pnpm install --frozen-lockfile
+
+      # Belt-and-braces: catches a lockfile that installs cleanly but would be
+      # rewritten by a resolution pass (e.g. a manifest range widened without
+      # re-locking).
+      - name: Verify the lockfile is not stale
+        run: |
+          pnpm install --lockfile-only --ignore-scripts
+          git diff --exit-code pnpm-lock.yaml
+
+      # The isolation guard inspects the built bundles for inlined
+      # dependencies, so the build has to happen first.
+      - name: Build packages
+        run: pnpm build
+
+      - name: Cross-framework isolation check
+        run: pnpm vitest run --project unit tests/guards/cross-framework-imports.test.ts
+
+      - name: Telemetry / OTEL compat check
+        run: pnpm vitest run --project unit tests/guards/telemetry-compat.test.ts
