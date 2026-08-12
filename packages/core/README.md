@@ -38,10 +38,13 @@ import {
 class MyFrameworkMapper extends BaseAgentMapper {
   readonly framework: SupportedFramework = SupportedFrameworks.MY_FRAMEWORK;
 
-  mapAgentMetadata(agent: unknown): AgentMetadataRecord {
-    // Read the framework-native agent structurally, then hand the partial
-    // record to `this.finalize(...)`, which fills defaults, derives the
-    // workflow name and validates the result.
+  // Async by contract: frameworks commonly hide an agent's config behind async
+  // accessors (Mastra's `Agent.listTools()` returns a Promise), and a sync
+  // mapper would silently report empty tools for every real agent.
+  async mapAgentMetadata(agent: unknown): Promise<AgentMetadataRecord> {
+    // Read the framework-native agent, then hand the partial record to
+    // `this.finalize(...)`, which fills defaults, derives the workflow name
+    // and validates the result.
     return this.finalize({/* … */});
   }
 }
@@ -63,7 +66,11 @@ class MyFrameworkRunner extends BaseWorkflowRunner {
 Two rules the CI guards enforce:
 
 - **Import the framework SDK as a peer, never a dependency.** Read native agents
-  structurally so the framework stays out of the runtime graph.
+  structurally so the framework stays out of the runtime graph. Read config
+  through the framework's _accessors_ (`getInstructions()`, `listTools()`), not
+  its plain properties — a real instance usually keeps those private, and a
+  property-only mapper passes every fixture-based test while reporting nothing
+  for real agents.
 - **Import Dapr types from here, not from `@dapr/dapr`.** One package owns the
   SDK version; see `src/workflow/dapr.ts` for why.
 

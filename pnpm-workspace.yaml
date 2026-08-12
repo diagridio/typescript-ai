@@ -1,5 +1,6 @@
 packages:
   - packages/*
+  - examples/*
 
 # Keep the dependency surface honest: an adapter package must not silently
 # hoist another framework's SDK into its own resolution. Strict, isolated

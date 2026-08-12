@@ -6,6 +6,7 @@
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/mastra" },
+    { "path": "./examples/mastra" },
     { "path": "./tests" }
   ]
 }

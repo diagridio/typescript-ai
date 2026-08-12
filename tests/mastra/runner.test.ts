@@ -45,15 +45,16 @@ describe('DaprWorkflowAgentRunner', () => {
     expect(runner.isRunning).toBe(false);
   });
 
-  it('exposes a Mastra mapper and matching metadata', () => {
+  it('exposes a Mastra mapper and matching metadata', async () => {
     const runner = newRunner();
+    const metadata = await runner.getMetadata();
 
     expect(runner.mapper.framework).toBe('Mastra');
     // The metadata's workflowName must equal the name the runner registers
     // under — that identity is the whole reason the runner owns the name.
-    expect(runner.metadata.workflowName).toBe(runner.workflowName);
-    expect(runner.metadata.name).toBe('support-agent');
-    expect(runner.metadata.llm.model).toBe('gpt-4o-mini');
+    expect(metadata.workflowName).toBe(runner.workflowName);
+    expect(metadata.name).toBe('support-agent');
+    expect(metadata.llm.model).toBe('gpt-4o-mini');
   });
 
   it('defaults maxIterations and honours an override', () => {

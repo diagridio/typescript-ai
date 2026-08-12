@@ -7,9 +7,16 @@
  * The mapper reads a Mastra `Agent` structurally (see the note in
  * `packages/mastra/src/mapper.ts` about `@mastra/core` being a peer
  * dependency), so the fixtures below are plain objects shaped like one. That
- * is deliberate, not a shortcut: constructing a real `Agent` would import
- * Mastra into the unit suite and mask the very coupling the guard tests exist
- * to prevent.
+ * keeps the bulk of the unit suite free of the framework, which is the right
+ * default — an adapter that only works against the real class has a hidden
+ * runtime dependency on it.
+ *
+ * It also has one blind spot, and it bit us: a real `Agent` keeps `instructions`
+ * and `tools` private behind `getInstructions()` / `listTools()`, so a mapper
+ * reading the plain properties passed everything here while reporting nothing
+ * for real agents. `tests/mastra/mapper-real-agent.test.ts` covers that gap
+ * against the genuine class. Use these fixtures for behaviour that does not
+ * depend on how Mastra stores its config, and that file for behaviour that does.
  */
 
 import { z } from 'zod';

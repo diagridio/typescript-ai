@@ -17,7 +17,7 @@ settled — but the two bridges into Mastra are typed stubs. Concretely:
 | ------------------------------------------------- | ------------------------------------------------ |
 | Runner lifecycle (`start`/`shutdown`/signals)     | ✅ implemented                                   |
 | Canonical workflow naming                         | ✅ implemented, matches the Python SDK           |
-| Registry metadata (`MastraAgentMapper`)           | ✅ implemented (static config; see notes below)  |
+| Registry metadata (`MastraAgentMapper`)           | ✅ implemented (all model forms + tools)         |
 | Zod I/O models for the workflow boundary          | ✅ implemented                                   |
 | Checkpoint persistence (`DaprMastraCheckpointer`) | ✅ implemented                                   |
 | Durable agent loop (`agentWorkflow`)              | ✅ implemented and unit-tested                   |
@@ -102,16 +102,29 @@ importing `@mastra/core`. That is deliberate: importing the framework here would
 put it in the runtime graph of anyone installing the adapter, which
 `tests/guards/cross-framework-imports.test.ts` forbids.
 
-Two consequences worth knowing:
+Four consequences worth knowing:
 
-- Mastra accepts `instructions`, `model` and `tools` as either a value or a
-  (possibly async) factory. A factory needs a `RuntimeContext` that does not
-  exist at registration time, so dynamic config is **skipped** — the registry
-  shows the static configuration. It does not guess.
+- **Config is read through the class accessors**, not the plain properties. A
+  real `Agent` keeps `instructions` and `tools` private and exposes them via
+  `getInstructions()` and `listTools()`; reading `agent.tools` returns
+  `undefined`. `listTools()` is async, which is why
+  `mapper.mapAgentMetadata()` and `runner.getMetadata()` are async too.
+- **All three of Mastra's model forms are supported**: the model-router magic
+  string (`'openai/gpt-4o-mini'`), an OpenAI-compatible config
+  (`{ id, url }` or `{ providerId, modelId, url }` — how you point at Ollama),
+  and an AI SDK model instance. A malformed router id is echoed back verbatim so
+  the typo is visible in the registry, rather than collapsed to `unknown`.
+- Mastra also accepts `instructions`, `model` and `tools` as a **factory**. A
+  factory needs a `RuntimeContext` that does not exist at registration time, so
+  dynamic config is **skipped** — the registry shows the static configuration. It
+  does not guess.
 - Tool argument schemas are rendered as JSON Schema via Zod 4's
   `z.toJSONSchema()`. Zod 3 schemas and schemas containing transforms are not
   representable, and degrade to an empty string rather than to
   `[object Object]`.
+
+See [`examples/mastra/`](../../examples/mastra/README.md) — `pnpm inspect` prints
+the whole record for a real agent.
 
 ## License
 

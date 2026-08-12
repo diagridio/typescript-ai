@@ -1,0 +1,16 @@
+{
+  // The examples are type-checked by the workspace `tsc --build`, which is the
+  // point of making them a workspace member: they consume the adapter's public
+  // API the way a user does, so the build breaks the moment that API drifts.
+  //
+  // They inherit the strict options from tsconfig.base.json deliberately. An
+  // example that needs a cast to compile is a signal the public API is awkward.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../../.tsbuild/example-mastra",
+    "tsBuildInfoFile": "../../.tsbuild/example-mastra.tsbuildinfo"
+  },
+  "include": ["*.ts"],
+  "references": [{ "path": "../../packages/mastra" }]
+}

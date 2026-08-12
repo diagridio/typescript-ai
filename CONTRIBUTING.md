@@ -87,6 +87,22 @@ instances. That is not a shortcut: constructing a real Mastra `Agent` in the uni
 suite would import `@mastra/core` and mask the exact coupling the guard tests
 exist to prevent.
 
+## Running the examples
+
+`examples/mastra/` holds runnable scripts. They are pnpm workspace members, so
+the root `pnpm install` covers them and `pnpm typecheck` type-checks them — an
+example that stops compiling is the earliest signal the adapter's public API has
+drifted.
+
+```bash
+pnpm --filter @diagrid/example-mastra run inspect   # no API key, no sidecar
+```
+
+`tests/e2e/mastra-examples.integration.test.ts` executes all of them in the
+integration lane, so they cannot rot at runtime either. See
+[`examples/mastra/README.md`](examples/mastra/README.md) for what each script
+does and which currently complete.
+
 ## The guard tests
 
 `tests/guards/` holds two invariants that CI runs as their own steps in

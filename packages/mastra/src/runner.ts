@@ -95,8 +95,14 @@ export class DaprWorkflowAgentRunner extends BaseWorkflowRunner {
     return this.#mapper;
   }
 
-  /** This agent's registry metadata record. */
-  get metadata(): AgentMetadataRecord {
+  /**
+   * This agent's registry metadata record.
+   *
+   * A method rather than a getter because it is async: Mastra exposes an
+   * agent's tools only through `listTools()`, which returns a Promise. See the
+   * note on {@link AgentMapper.mapAgentMetadata}.
+   */
+  getMetadata(): Promise<AgentMetadataRecord> {
     return this.#mapper.mapAgentMetadata(this.agent, { name: this.name });
   }
 

@@ -93,10 +93,14 @@ console.log(result.text);
 await runner.shutdown();
 ```
 
-Run it under a sidecar:
+Run it under a sidecar — either self-hosted Dapr or managed Catalyst:
 
 ```bash
+# Local Dapr: components come from ./resources
 dapr run --app-id support-agent --resources-path ./resources -- node dist/agent.js
+
+# Diagrid Catalyst: components come from the Catalyst project
+diagrid dev run --app-id support-agent -- node dist/agent.js
 ```
 
 > The `invoke()` call above will throw today: the model bridge is unimplemented.
@@ -129,9 +133,13 @@ packages/core      @diagrid/agent-core    shared runtime: base runner, agent
                                           mapper contract, workflow naming,
                                           state, pub/sub, telemetry
 packages/mastra    @diagrid/agent-mastra  the Mastra adapter
+examples/mastra                           runnable scripts, type-checked in CI
 tests/             mirrors the source tree; `tests/guards/` holds the two
                    invariants CI enforces directly
 ```
+
+Start with [`examples/mastra/`](examples/mastra/) — `pnpm inspect` there needs no
+API key and no sidecar, and prints exactly what Diagrid publishes about an agent.
 
 ## Adding another framework
 
@@ -150,6 +158,9 @@ change. Everything framework-specific lives in one package:
 4. Add a `package-ecosystem: npm` block for the new directory in
    `.github/dependabot.yml`, and a publish step in
    `.github/workflows/npm-release.yaml`.
+5. Add an `examples/<framework>/` directory. Examples are workspace members and
+   are type-checked, so they keep the adapter's public API honest — the build
+   breaks the moment it drifts.
 
 The framework SDK must be a **peer** dependency, never a hard one — the
 isolation guard enforces it.

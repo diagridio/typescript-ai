@@ -68,12 +68,13 @@ describe.skipIf(!OLLAMA_ENDPOINT)('Mastra adapter e2e (Ollama)', () => {
     }
   });
 
-  it('reports the configured model in registry metadata', () => {
+  it('reports the configured model in registry metadata', async () => {
     const runner = new DaprWorkflowAgentRunner({ agent, name: 'e2e-agent' });
+    const metadata = await runner.getMetadata();
 
-    expect(runner.metadata.llm.provider).toBe('ollama');
-    expect(runner.metadata.llm.model).toBe(OLLAMA_MODEL);
-    expect(runner.metadata.llm.baseUrl).toBe(OLLAMA_ENDPOINT);
+    expect(metadata.llm.provider).toBe('ollama');
+    expect(metadata.llm.model).toBe(OLLAMA_MODEL);
+    expect(metadata.llm.baseUrl).toBe(OLLAMA_ENDPOINT);
   });
 
   it('registers under the canonical workflow name', () => {

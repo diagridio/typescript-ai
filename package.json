@@ -32,6 +32,7 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@grpc/grpc-js": "1.14.4",
+    "@mastra/core": "1.57.0",
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/exporter-trace-otlp-grpc": "0.221.0",
     "@opentelemetry/resources": "2.10.0",
@@ -56,7 +57,9 @@
     "them directly to pin the upstream surface that packages/core loads behind",
     "a dynamic import(). pnpm's isolated node_modules means a dependency of",
     "packages/core is not resolvable from tests/, so the guard needs its own",
-    "declaration. Keep these versions in lockstep with packages/core."
+    "packages/core. @mastra/core is here for the same reason:",
+    "tests/mastra/mapper-real-agent.test.ts maps a genuine Mastra Agent, which is",
+    "the only way to catch config that the class keeps private (see that file)."
   ],
   "lint-staged": {
     "*.{ts,tsx,mts,cts}": [

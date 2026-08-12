@@ -1,0 +1,49 @@
+# Dapr components for the Mastra examples, running locally under `dapr run`.
+#
+# These deliberately mirror the components a Catalyst project provisions with
+# `diagrid project create --enable-agent-infrastructure`, so switching between
+# the two run paths needs no configuration change:
+#
+#   agent-workflow   state store for the Dapr workflow engine (actor state store)
+#   agent-memory     state store for conversation memory / checkpoints
+#
+# On Catalyst these are managed (`state.diagrid`) and already exist — that path
+# ignores this directory entirely and needs no `--resources-path`.
+#
+# Two components rather than one because Dapr permits only a single actor state
+# store, and `agent-memory` is not it: the workflow engine claims that role via
+# `agent-workflow`, while `DaprMastraCheckpointer` does plain key/value work
+# against `agent-memory` (which is `DEFAULT_STORE_NAME` in
+# `packages/core/src/state/store.ts`, so nothing needs configuring).
+#
+# Redis on localhost:6379 is what `dapr init` gives you. Swap in your own state
+# store for anything real.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: agent-workflow
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: "localhost:6379"
+    - name: redisPassword
+      value: ""
+    # The workflow engine is built on actors, so exactly one component in the
+    # project must carry this flag.
+    - name: actorStateStore
+      value: "true"
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: agent-memory
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: "localhost:6379"
+    - name: redisPassword
+      value: ""

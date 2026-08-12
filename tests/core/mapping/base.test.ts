@@ -19,35 +19,37 @@ import {
 class ProbeMapper extends BaseAgentMapper {
   override readonly framework: SupportedFramework = SupportedFrameworks.MASTRA;
 
-  override mapAgentMetadata(agent: unknown): AgentMetadataRecord {
+  override mapAgentMetadata(agent: unknown): Promise<AgentMetadataRecord> {
     const name = typeof agent === 'string' ? agent : 'probe';
-    return this.finalize({
-      name,
-      registeredAt: '2026-08-11T00:00:00.000Z',
-      agent: {
-        appid: '',
-        type: 'Probe',
-        orchestrator: false,
-        role: 'Assistant',
-        goal: '',
-        instructions: [],
-        systemPrompt: '',
-        framework: this.framework,
-        maxIterations: 1,
-        toolChoice: 'auto',
-        metadata: null,
-      },
-      llm: {
-        client: '',
-        provider: UNKNOWN_PROVIDER,
-        api: 'chat',
-        model: 'unknown',
-      },
-      pubsub: { resourceName: '' },
-      memory: {},
-      registry: {},
-      tools: [],
-    });
+    return Promise.resolve(
+      this.finalize({
+        name,
+        registeredAt: '2026-08-11T00:00:00.000Z',
+        agent: {
+          appid: '',
+          type: 'Probe',
+          orchestrator: false,
+          role: 'Assistant',
+          goal: '',
+          instructions: [],
+          systemPrompt: '',
+          framework: this.framework,
+          maxIterations: 1,
+          toolChoice: 'auto',
+          metadata: null,
+        },
+        llm: {
+          client: '',
+          provider: UNKNOWN_PROVIDER,
+          api: 'chat',
+          model: 'unknown',
+        },
+        pubsub: { resourceName: '' },
+        memory: {},
+        registry: {},
+        tools: [],
+      })
+    );
   }
 
   /** Expose the protected static for testing. */
@@ -95,25 +97,30 @@ describe('BaseAgentMapper.extractProvider', () => {
 describe('BaseAgentMapper.finalize', () => {
   const mapper = new ProbeMapper();
 
-  it('derives the workflow name from the framework and agent name', () => {
-    expect(mapper.mapAgentMetadata('catering-coordinator').workflowName).toBe(
-      'dapr.mastra.CateringCoordinator.workflow'
-    );
+  it('derives the workflow name from the framework and agent name', async () => {
+    expect(
+      (await mapper.mapAgentMetadata('catering-coordinator')).workflowName
+    ).toBe('dapr.mastra.CateringCoordinator.workflow');
   });
 
-  it('stamps the current schema version', () => {
-    expect(mapper.mapAgentMetadata('probe').version).toBe('0.1.0');
+  it('stamps the current schema version', async () => {
+    expect((await mapper.mapAgentMetadata('probe')).version).toBe('0.1.0');
   });
 
-  it('validates the record, so a malformed mapper fails loudly', () => {
+  it('validates the record, so a malformed mapper fails loudly', async () => {
     class BrokenMapper extends ProbeMapper {
-      override mapAgentMetadata(): AgentMetadataRecord {
+      // `async` matters here: it turns `finalize`'s synchronous validation
+      // throw into a rejected promise, which is how every real mapper behaves.
+      // That is the whole point of this fixture, so the missing `await` is
+      // deliberate rather than an oversight.
+      // eslint-disable-next-line @typescript-eslint/require-await
+      override async mapAgentMetadata(): Promise<AgentMetadataRecord> {
         // `name` is required by the schema; omitting it is the class of bug
         // this parse exists to catch before anything reaches the registry.
         return this.finalize({} as never);
       }
     }
 
-    expect(() => new BrokenMapper().mapAgentMetadata()).toThrow();
+    await expect(new BrokenMapper().mapAgentMetadata()).rejects.toThrow();
   });
 });

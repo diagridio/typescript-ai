@@ -56,3 +56,17 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
+
+  # npm — the Mastra examples. Private and never published, but they are a
+  # workspace member and type-checked in CI, so a breaking @mastra/core bump
+  # surfaces here as a build failure in the example — which is the cheapest
+  # possible warning that the adapter's own API assumptions have moved.
+  - package-ecosystem: "npm"
+    directory: "/examples/mastra"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]

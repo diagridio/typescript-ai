@@ -34,7 +34,17 @@ export interface MapAgentMetadataOptions {
   readonly schemaVersion?: string;
 }
 
-/** Contract every framework mapper satisfies. */
+/**
+ * Contract every framework mapper satisfies.
+ *
+ * `mapAgentMetadata` is **async**, and that is a deliberate constraint on
+ * adapters rather than an accident. Frameworks routinely expose an agent's
+ * configuration behind async accessors — Mastra's `Agent.listTools()` returns a
+ * Promise, for instance — so a synchronous contract would force every such
+ * adapter to report empty tools for a real agent while still passing tests
+ * written against plain-object fixtures. Publication writes to a Dapr state
+ * store anyway, so nothing is lost by awaiting here.
+ */
 export interface AgentMapper {
   /** Framework this mapper understands. */
   readonly framework: SupportedFramework;
@@ -42,7 +52,7 @@ export interface AgentMapper {
   mapAgentMetadata(
     agent: unknown,
     options?: MapAgentMetadataOptions
-  ): AgentMetadataRecord;
+  ): Promise<AgentMetadataRecord>;
 }
 
 /**
@@ -77,7 +87,7 @@ export abstract class BaseAgentMapper implements AgentMapper {
   abstract mapAgentMetadata(
     agent: unknown,
     options?: MapAgentMetadataOptions
-  ): AgentMetadataRecord;
+  ): Promise<AgentMetadataRecord>;
 
   /**
    * Derive a provider identifier from a module specifier or model id.
