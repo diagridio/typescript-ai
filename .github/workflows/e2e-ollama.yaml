@@ -1,0 +1,127 @@
+name: E2E Tests (Ollama)
+
+# Real model, real sidecar. Mirrors python-ai's e2e-ollama.yaml: installs
+# Ollama, pulls a small model, sets up Docker and the Dapr CLI, then runs the
+# integration-tagged suite.
+#
+# ## Why this is opt-in on PRs
+#
+# The Mastra adapter is still a scaffold — the model bridge is unimplemented —
+# so there is no agent turn for a live model to complete yet. Spending ~20
+# minutes of runner time on every PR to prove that would be waste. The lane is
+# fully wired and runs nightly; on a PR it runs when you apply the
+# `e2e-ollama` label. This mirrors the opt-in-by-label phase the
+# `e2e-catalyst` lane uses in python-ai.
+#
+# Flip the `if:` on the job to unconditional once the adapter can complete a
+# turn against a live model.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: "0 4 * * *" # nightly at 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-ollama:
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'e2e-ollama')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.0.10
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Cache Ollama model
+        id: cache-ollama
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.ollama
+          key: ollama-qwen3-0.6b-v1-${{ runner.os }}
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama and pull model
+        run: |
+          ollama serve &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "Ollama server is ready"
+              break
+            fi
+            echo "Waiting for Ollama... ($i/30)"
+            sleep 2
+          done
+          ollama pull qwen3:0.6b
+          echo "Warming up model..."
+          curl -sf http://localhost:11434/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -d '{"model":"qwen3:0.6b","messages":[{"role":"user","content":"Say hello in one word"}]}' \
+            > /dev/null 2>&1 || echo "WARNING: Model warm-up failed, tests may be slower"
+          echo "Ollama ready with qwen3:0.6b"
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v5.4.0
+
+      - name: Install Dapr CLI
+        run: wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
+
+      - name: Initialize Dapr
+        run: dapr init
+
+      - name: Run E2E tests
+        env:
+          OLLAMA_ENDPOINT: http://localhost:11434/v1
+          OLLAMA_MODEL: qwen3:0.6b
+          OPENAI_API_KEY: ollama
+          OPENAI_BASE_URL: http://localhost:11434/v1
+          # Turn a missing prerequisite into a failure. Without this, an Ollama
+          # that never came up would let the suite skip itself and report green
+          # — the one outcome a gated e2e lane must never produce.
+          DIAGRID_E2E_REQUIRED: "1"
+        run: pnpm test:integration
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: e2e-ollama-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/e2e_*
+            /tmp/dapr-*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Stop Ollama and tear down Dapr state so the runner is left clean for
+          # the next job (and so a retry of this job starts from zero).
+          pkill -f "ollama serve" || true
+          dapr uninstall --all 2>/dev/null || true
+          docker ps -aq --filter "name=dapr_" | xargs -r docker rm -f 2>/dev/null || true

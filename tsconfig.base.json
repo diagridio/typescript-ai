@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    // --- Target / module system -------------------------------------------
+    // ESM-first. `bundler` resolution lets source import siblings without
+    // file extensions while tsup emits both ESM and CJS for consumers.
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+
+    // Resolve workspace packages to source rather than to their built `dist`,
+    // so a clean checkout type-checks and tests without a build step. The
+    // published `exports` still point at `dist` — see each package.json.
+    // Vitest mirrors these in `resolve.alias` (vitest.config.ts).
+    //
+    // No `baseUrl`: it is deprecated in TypeScript 6 and removed in 7. Without
+    // it, `paths` resolve relative to the config file that declares them —
+    // i.e. relative to this file, at the repo root.
+    "paths": {
+      "@diagrid/agent-core": ["./packages/core/src/index.ts"],
+      "@diagrid/agent-mastra": ["./packages/mastra/src/index.ts"]
+    },
+
+    // --- Strictness -------------------------------------------------------
+    // `strict` plus the checks it deliberately leaves off. Adapter internals
+    // are stubs today, so the type system is the only thing holding the
+    // contract together until the bodies land.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+
+    // Unused-code checks live in ESLint (which can special-case `_`-prefixed
+    // parameters on the stubbed method bodies); leaving them off here keeps
+    // `tsc` from failing on TODO placeholders.
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+
+    // --- Emit -------------------------------------------------------------
+    // `tsc` is the type-checker only; tsup produces the shipped artifacts.
+    // Project references require `composite`, which forbids `noEmit`, so
+    // declarations go to a gitignored scratch dir.
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": true,
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  }
+}
