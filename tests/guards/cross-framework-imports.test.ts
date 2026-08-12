@@ -31,7 +31,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -83,12 +83,22 @@ function readManifest(dir: string): PackageManifest {
 }
 
 const distEntry = (dir: string) => join(PACKAGES_DIR, dir, 'dist', 'index.js');
+
+/**
+ * A path in the form dynamic `import()` accepts on every platform.
+ *
+ * On POSIX, `import('/abs/path')` happens to work. On Windows it does not:
+ * `import('D:\\a\\...')` throws ERR_UNSUPPORTED_ESM_URL_SCHEME because the
+ * loader reads `D:` as a URL scheme. Absolute paths must be `file://` URLs, so
+ * every specifier handed to a subprocess goes through here.
+ */
+const importSpecifier = (path: string) => pathToFileURL(path).href;
 const allDistsBuilt = ADAPTERS.every((a) => existsSync(distEntry(a.dir)));
 
 /** Import a module in a fresh Node process and assert it exports `symbol`. */
 function importInFreshProcess(specifier: string, symbol: string): void {
   const script = `
-    const mod = await import(${JSON.stringify(specifier)});
+    const mod = await import(${JSON.stringify(importSpecifier(specifier))});
     if (typeof mod[${JSON.stringify(symbol)}] === 'undefined') {
       throw new Error('missing export ${symbol}');
     }
@@ -195,13 +205,13 @@ describe.skipIf(!allDistsBuilt)('runtime import isolation', () => {
     // over a global tracer provider, or two copies of a singleton registry.
     const imports = ADAPTERS.map(
       (a) =>
-        `const m${a.dir} = await import(${JSON.stringify(distEntry(a.dir))});` +
+        `const m${a.dir} = await import(${JSON.stringify(importSpecifier(distEntry(a.dir)))});` +
         `if (!m${a.dir}[${JSON.stringify(a.runner)}]) throw new Error('missing ${a.runner}');`
     ).join('\n');
 
     const script = `
       ${imports}
-      const core = await import(${JSON.stringify(join(PACKAGES_DIR, CORE_PACKAGE_DIR, 'dist', 'index.js'))});
+      const core = await import(${JSON.stringify(importSpecifier(join(PACKAGES_DIR, CORE_PACKAGE_DIR, 'dist', 'index.js')))});
       if (typeof core.getTracer !== 'function') throw new Error('core.getTracer missing');
     `;
 

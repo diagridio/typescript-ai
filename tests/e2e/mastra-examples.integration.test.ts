@@ -43,7 +43,22 @@ const execFileAsync = promisify(execFile);
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const EXAMPLE_DIR = join(REPO_ROOT, 'examples', 'mastra');
-const TSX = join(EXAMPLE_DIR, 'node_modules', '.bin', 'tsx');
+/**
+ * The example package's own `tsx`.
+ *
+ * On Windows the pnpm bin shim is `tsx.cmd`, and Node refuses to `execFile` a
+ * `.cmd` without a shell (a deliberate restriction since the 2024 argument-
+ * injection fix), so both the filename and `shell` differ by platform. The
+ * integration lane runs on windows-latest, so this is load-bearing, not
+ * theoretical.
+ */
+const IS_WINDOWS = process.platform === 'win32';
+const TSX = join(
+  EXAMPLE_DIR,
+  'node_modules',
+  '.bin',
+  IS_WINDOWS ? 'tsx.cmd' : 'tsx'
+);
 
 const OLLAMA_ENDPOINT = process.env['OLLAMA_ENDPOINT'];
 const OLLAMA_MODEL = process.env['OLLAMA_MODEL'] ?? 'qwen3:0.6b';
@@ -69,6 +84,7 @@ async function runExample(
   try {
     const { stdout, stderr } = await execFileAsync(TSX, [script], {
       cwd: EXAMPLE_DIR,
+      shell: IS_WINDOWS,
       env: {
         ...process.env,
         // Explicitly no OPENAI_API_KEY: nothing here should need a real key, and
