@@ -26,17 +26,16 @@
  * await runner.shutdown();
  * ```
  *
- * ## Status
- *
- * Skeleton. Lifecycle, naming, registration wiring and the invoke/poll path
- * are real; the two bridges into Mastra — turning the agent's model into a
- * durable activity, and turning its tools into durable activities — are typed
- * stubs marked `TODO(mastra-adapter)`. `invoke()` therefore fails loudly
- * against a live sidecar today rather than returning a fabricated answer.
+ * Each model call and each tool execution becomes a checkpointed Dapr activity,
+ * so a process killed mid-turn resumes from the last completed activity instead
+ * of re-running the turn. See `./bridge.ts` for how Mastra is driven one step at
+ * a time, and `examples/mastra/crash-recovery.ts` for a demonstration that
+ * completed work is not recomputed.
  */
 
 import {
   BaseWorkflowRunner,
+  WorkflowRuntimeStatus,
   type AgentMapper,
   type AgentMetadataRecord,
   type BaseWorkflowRunnerOptions,
@@ -44,6 +43,7 @@ import {
   type WorkflowRuntime,
 } from '@diagrid/agent-core';
 
+import { createModelInvoker, createToolInvokers } from './bridge';
 import { MastraAgentMapper, type MastraAgentLike } from './mapper';
 import {
   agentWorkflowOutputSchema,
@@ -114,8 +114,29 @@ export class DaprWorkflowAgentRunner extends BaseWorkflowRunner {
    * agent turn outliving an HTTP request is the normal case, not the
    * exception.
    */
-  async invoke(input: AgentWorkflowInput): Promise<AgentWorkflowOutput> {
-    const workflowId = await this.schedule(input);
+  async invoke(
+    input: AgentWorkflowInput,
+    options: { workflowId?: string } = {}
+  ): Promise<AgentWorkflowOutput> {
+    const workflowId = await this.schedule(input, options);
+    return this.waitFor(workflowId);
+  }
+
+  /**
+   * Wait for an already-scheduled turn and return its output.
+   *
+   * This is how crash recovery is driven, and it is separate from
+   * {@link invoke} because Dapr's semantics require it to be. An interrupted
+   * workflow instance stays **active**: the engine redelivers its pending work as
+   * soon as a worker reconnects, so a restarted process must attach to that
+   * instance rather than schedule anything. Calling
+   * `scheduleNewWorkflow` again with the same id does not resume it — Dapr
+   * rejects it outright with *"an active workflow with ID … already exists"*.
+   *
+   * So a process that may be recovering should `start()` the runtime, then call
+   * this with the known workflow id.
+   */
+  async waitFor(workflowId: string): Promise<AgentWorkflowOutput> {
     const client = this.requireClient();
 
     const state = await client.waitForWorkflowCompletion(
@@ -130,18 +151,73 @@ export class DaprWorkflowAgentRunner extends BaseWorkflowRunner {
       );
     }
 
-    return agentWorkflowOutputSchema.parse(state.serializedOutput);
+    // A workflow that failed or was terminated has no output worth parsing, and
+    // Dapr reports that through the runtime status rather than by rejecting.
+    // Without this check a failed run surfaces as an opaque schema error.
+    if (state.runtimeStatus !== WorkflowRuntimeStatus.COMPLETED) {
+      throw new Error(
+        `Workflow "${workflowId}" ended with status ` +
+          `${WorkflowRuntimeStatus[state.runtimeStatus] ?? state.runtimeStatus}` +
+          (state.workflowFailureDetails
+            ? `: ${state.workflowFailureDetails.getErrorType()}: ` +
+              `${state.workflowFailureDetails.getErrorMessage()}`
+            : '')
+      );
+    }
+
+    // `serializedOutput` is a JSON *string*, not an object — the SDK's own
+    // naming says so. Handing it straight to a Zod object schema always threw;
+    // nothing caught it because no test ever executed a workflow.
+    if (state.serializedOutput === undefined) {
+      throw new Error(
+        `Workflow "${workflowId}" completed without producing output`
+      );
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(state.serializedOutput);
+    } catch (cause) {
+      throw new Error(
+        `Workflow "${workflowId}" produced output that is not valid JSON`,
+        { cause }
+      );
+    }
+
+    return agentWorkflowOutputSchema.parse(parsed);
   }
 
   /**
    * Schedule an agent turn and return its workflow instance id.
    *
-   * The instance id is derived from the thread id so a retry of the same turn
-   * is idempotent at the Dapr level rather than starting a second agent.
+   * Pass `workflowId` to control the Dapr instance id. This is what makes crash
+   * recovery possible, and it is opt-in for a reason:
+   *
+   * - **Omitted** — Dapr assigns a fresh id, so every call is a new turn. Right
+   *   for ordinary use, where two turns on one thread must not collide.
+   * - **Supplied** — the turn is pinned to that id, so a restarted process can
+   *   find it again. Recovery is *not* done by scheduling again: Dapr rejects a
+   *   duplicate active id. Use {@link waitFor} to attach to it instead.
+   *
+   * There is no safe default here: deriving the id from `threadId` alone would
+   * make the second turn of a conversation collide with the first. The caller
+   * knows what identifies a turn; the adapter does not.
+   *
+   * An earlier version of this method claimed in its own doc comment to derive
+   * the id from the thread id, while passing no id at all. `crash-recovery.ts`
+   * is what caught it — run 2 quietly started a new workflow and re-ran work the
+   * first run had already completed.
    */
-  async schedule(input: AgentWorkflowInput): Promise<string> {
+  async schedule(
+    input: AgentWorkflowInput,
+    options: { workflowId?: string } = {}
+  ): Promise<string> {
     const client = this.requireClient();
-    return client.scheduleNewWorkflow(this.workflowName, input);
+    return client.scheduleNewWorkflow(
+      this.workflowName,
+      input,
+      options.workflowId
+    );
   }
 
   /** Register the workflow and its activities. Called once from `start()`. */
@@ -153,32 +229,39 @@ export class DaprWorkflowAgentRunner extends BaseWorkflowRunner {
     // each other's tools.
     clearRegistries();
 
-    registerModelInvoker((_modelInput) => {
-      // TODO(mastra-adapter): bridge to Mastra. Call the agent's configured
-      // model with `_modelInput.messages` (converted to AI SDK message parts)
-      // and the tool definitions named in `_modelInput.toolNames`, then map the
-      // response back onto `InvokeModelOutput`. Must resolve the model through
-      // `agent.getModel()` rather than `agent.model`, since Mastra allows a
-      // dynamic model factory.
-      throw new Error(
-        `${ACTIVITY_INVOKE_MODEL} is not implemented yet — the Mastra adapter is a scaffold. ` +
-          'See packages/mastra/src/runner.ts (TODO: bridge to Mastra).'
-      );
-    });
+    // One model call per iteration, tools offered but never executed by Mastra
+    // — see the header of ./bridge.ts for why `clientTools` + `maxSteps: 1` is
+    // the only combination that both calls tools and keeps execution durable.
+    registerModelInvoker(createModelInvoker(this.agent));
 
-    // TODO(mastra-adapter): enumerate `agent.getTools()` and register one
-    // invoker per tool, validating args against the tool's `inputSchema`
-    // before execution. Left unregistered rather than stubbed, so
-    // `invokeToolActivity` reports an honest "Unknown tool" instead of a fake
-    // result.
-    void registerToolInvoker;
-
+    // Tool invokers are *not* registered here. Reading an agent's tools requires
+    // `await agent.listTools()`, but Dapr requires workflow and activity
+    // registration to be synchronous and finished before the runtime starts —
+    // so they are registered in `start()`, after `super.start()` returns and
+    // before any workflow can be scheduled.
     runtime.registerWorkflowWithName(this.workflowName, agentWorkflow);
     runtime.registerActivityWithName(
       ACTIVITY_INVOKE_MODEL,
       invokeModelActivity
     );
     runtime.registerActivityWithName(ACTIVITY_INVOKE_TOOL, invokeToolActivity);
+  }
+
+  /**
+   * Start the runtime, then register one invoker per Mastra tool.
+   *
+   * Split from {@link registerWorkflowComponents} because that hook is
+   * synchronous by Dapr's contract while `agent.listTools()` is async. Ordering
+   * is safe: `super.start()` has already registered the workflow and its
+   * activities, and nothing can schedule a workflow until this returns.
+   */
+  override async start(): Promise<void> {
+    await super.start();
+
+    const invokers = await createToolInvokers(this.agent);
+    for (const [name, invoker] of invokers) {
+      registerToolInvoker(name, invoker);
+    }
   }
 
   /** Release the checkpointer alongside the base runner's resources. */

@@ -31,9 +31,11 @@ export type {
   WorkflowContext,
   WorkflowFailureDetails,
   WorkflowRuntime,
-  WorkflowRuntimeStatus,
   WorkflowState,
 } from './workflow/dapr';
+
+// A value, not a type — see the note in ./workflow/dapr.ts.
+export { WorkflowRuntimeStatus } from './workflow/dapr';
 
 export {
   BaseWorkflowRunner,

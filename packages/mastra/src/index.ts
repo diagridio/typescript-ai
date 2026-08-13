@@ -10,8 +10,9 @@
  * crashes, sidecar restarts and provider outages without re-running work it
  * already paid for.
  *
- * See the package README for the current implementation status — the adapter
- * is a compiling, testable scaffold, not yet a working integration.
+ * Verified end to end against a live Dapr sidecar: a real agent turn completes
+ * with tool calls executed as separate activities, and a process killed mid-turn
+ * resumes without recomputing completed work. See the package README.
  */
 
 export { VERSION } from './version';
@@ -20,6 +21,14 @@ export {
   DaprWorkflowAgentRunner,
   type DaprWorkflowAgentRunnerOptions,
 } from './runner';
+
+export {
+  createModelInvoker,
+  createToolInvokers,
+  definitionOnlyTools,
+  readTools,
+  toModelMessages,
+} from './bridge';
 
 export { MastraAgentMapper, type MastraAgentLike } from './mapper';
 

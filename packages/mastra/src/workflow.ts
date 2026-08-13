@@ -17,13 +17,9 @@
  * `Agent` (it would not survive replay), so the runner registers the agent's
  * model and tools here by name and the activities look them up.
  *
- * ## Status
- *
- * Skeleton. The orchestrator's control flow is real and the activity contracts
- * are fixed, but the two activity bodies that touch Mastra are stubs — see the
- * `TODO(mastra-adapter)` markers. Nothing here fakes a working integration:
- * an unimplemented activity throws rather than returning a plausible-looking
- * result.
+ * The activity bodies delegate to `./bridge.ts`, which drives Mastra one step at
+ * a time so that tool execution stays inside checkpointed activities rather than
+ * inside the framework.
  */
 
 import type {
@@ -43,6 +39,17 @@ import {
   type InvokeToolOutput,
   type Message,
 } from './models';
+
+/**
+ * How many times a failing tool activity is attempted, in total.
+ *
+ * Stands in for a Dapr activity `RetryPolicy`, which the JS SDK does not expose.
+ * See the retry loop in {@link agentWorkflow}.
+ */
+export const TOOL_MAX_ATTEMPTS = 3;
+
+/** First backoff delay; doubles per attempt. */
+export const TOOL_RETRY_BASE_DELAY_MS = 500;
 
 /** Activity names, also the registration names on the Dapr runtime. */
 export const ACTIVITY_INVOKE_MODEL = 'diagrid.mastra.invokeModel';
@@ -123,10 +130,15 @@ export async function invokeModelActivity(
 /**
  * Activity: one tool execution.
  *
- * A tool that throws is reported back to the orchestrator as an `error` on the
- * output rather than failing the activity, so the model gets a chance to
- * recover from a bad call. Infrastructure failures still propagate — Dapr's
- * retry policy is the right place to handle those.
+ * Failure handling splits by *cause*, which is what makes retrying useful:
+ *
+ * - **Bad arguments** (the model produced input the tool's schema rejects) come
+ *   back as an `error` on the output. Retrying cannot fix them; the model can.
+ * - **A throw from the tool body** propagates as an activity failure, so the
+ *   orchestrator retries it with backoff — see the retry loop in
+ *   {@link agentWorkflow}. A rate limit or dropped connection therefore costs a
+ *   retry, not an LLM round trip.
+ * - **An unknown tool** is an error on the output: nothing will make it appear.
  */
 export async function invokeToolActivity(
   _ctx: WorkflowActivityContext,
@@ -149,16 +161,36 @@ export async function invokeToolActivity(
 /**
  * Orchestrator: the durable agent loop.
  *
- * Model call -> tool calls -> repeat, up to `maxIterations`. Written as a
- * generator per the Dapr JS workflow contract; every `yield` is a durable
- * checkpoint. The function body must stay deterministic — no clocks, no
- * randomness, no I/O — because Dapr re-executes it from the top on every
- * replay.
+ * Model call -> tool calls -> repeat, up to `maxIterations`. Every `yield` is a
+ * durable checkpoint. The function body must stay deterministic — no clocks, no
+ * randomness, no I/O — because Dapr re-executes it from the top on every replay.
+ *
+ * ## It must be an `async function*`, not a `function*`
+ *
+ * This is not stylistic. Dapr's orchestration executor decides what to do with
+ * an orchestrator by checking for an **async** iterator:
+ *
+ * ```js
+ * const isAsyncGenerator = typeof result?.[Symbol.asyncIterator] === 'function';
+ * if (isAsyncGenerator) { await ctx.run(result); }
+ * else { ctx.setComplete(result, ORCHESTRATION_STATUS_COMPLETED); }
+ * ```
+ *
+ * A sync `function*` has `Symbol.iterator` but not `Symbol.asyncIterator`, so it
+ * takes the `else` branch: the generator object itself is serialized as the
+ * workflow output and the instance is marked **COMPLETED without running a
+ * single activity**. Nothing throws. The only visible symptom is an empty result
+ * — which is how this shipped unnoticed until an example ran a real workflow and
+ * reported `Iterations: 0` with status `completed`.
  */
-export function* agentWorkflow(
+// `async` is mandated by Dapr's executor (it tests Symbol.asyncIterator);
+// suspension happens through `yield`, never `await`, so there is deliberately no
+// await in the body. See the note above for what a sync generator does instead.
+// eslint-disable-next-line @typescript-eslint/require-await
+export async function* agentWorkflow(
   ctx: WorkflowContext,
   rawInput: unknown
-): Generator<unknown, AgentWorkflowOutput, unknown> {
+): AsyncGenerator<unknown, AgentWorkflowOutput, unknown> {
   const input = agentWorkflowInputSchema.parse(rawInput);
 
   const messages: Message[] = [
@@ -208,14 +240,63 @@ export function* agentWorkflow(
     // settled; sequential `yield`s keep replay ordering trivially stable while
     // the activity contracts are still moving.
     for (const call of toolCalls) {
-      const toolOutput = invokeToolOutputSchema.parse(
-        yield ctx.callActivity(ACTIVITY_INVOKE_TOOL, {
+      const activityInput = {
+        toolCallId: call.id,
+        toolName: call.name,
+        args: call.args,
+        threadId: input.threadId,
+      };
+
+      let toolOutput: InvokeToolOutput | undefined;
+      let lastFailure: string | undefined;
+
+      // Retry a failed tool in place, without involving the model.
+      //
+      // This is what a Dapr `RetryPolicy` on the activity would do, done in the
+      // orchestrator because the JS SDK has no such policy: neither
+      // `@dapr/dapr@3.18` nor `@dapr/durabletask-js@1.0` accepts one —
+      // `callActivity(activity, input)` is the whole signature. (The Python
+      // `dapr-ext-workflow` does have `RetryPolicy`.)
+      //
+      // Doing it here is not a downgrade in durability. Every attempt and every
+      // backoff timer is a checkpointed workflow action, so a process killed
+      // between attempt 2 and 3 resumes at attempt 3 rather than starting over.
+      // The clock comes from `getCurrentUtcDateTime()`, which is replay-stable —
+      // `Date.now()` here would be non-deterministic and corrupt replay.
+      //
+      // TODO(mastra-adapter): switch to a native activity RetryPolicy when the
+      // JS SDK gains one, and delete this loop.
+      for (let attempt = 1; attempt <= TOOL_MAX_ATTEMPTS; attempt += 1) {
+        try {
+          toolOutput = invokeToolOutputSchema.parse(
+            yield ctx.callActivity(ACTIVITY_INVOKE_TOOL, activityInput)
+          );
+          lastFailure = undefined;
+          break;
+        } catch (error) {
+          lastFailure = error instanceof Error ? error.message : String(error);
+
+          if (attempt < TOOL_MAX_ATTEMPTS) {
+            const delayMs = TOOL_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+            yield ctx.createTimer(
+              new Date(ctx.getCurrentUtcDateTime().getTime() + delayMs)
+            );
+          }
+        }
+      }
+
+      if (toolOutput === undefined) {
+        // Retries exhausted. Report it to the model as a tool error rather than
+        // failing the turn: a tool that is down is something the agent may be
+        // able to work around or explain, and losing the whole conversation is
+        // strictly worse.
+        messages.push({
+          role: 'tool',
+          content: `tool failed after ${TOOL_MAX_ATTEMPTS} attempts: ${lastFailure ?? 'unknown error'}`,
           toolCallId: call.id,
-          toolName: call.name,
-          args: call.args,
-          threadId: input.threadId,
-        })
-      );
+        });
+        continue;
+      }
 
       messages.push({
         role: 'tool',

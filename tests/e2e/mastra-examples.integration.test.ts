@@ -21,17 +21,16 @@
  *
  * ## What is asserted today
  *
- * `inspect-agent.ts` is fully verified — it is the one example that completes
- * while the model and tool bridges are stubs — including that it recognizes both
- * run paths: local `dapr run` (`DAPR_GRPC_PORT`) and Catalyst `diagrid dev run`
- * (`DAPR_GRPC_ENDPOINT`).
+ * Without a sidecar: `inspect-agent.ts` must still complete and report the right
+ * registry record, and must recognize both run paths — local `dapr run`
+ * (`DAPR_GRPC_PORT`) and Catalyst `diagrid dev run` (`DAPR_GRPC_ENDPOINT`). The
+ * three that need a sidecar must say so actionably, with no gRPC stack trace.
  *
- * For the other three, the assertion is that they fail *actionably*: naming both
- * run paths, with no gRPC stack trace and no claim of success. When the bridges
- * land, replace those with real output assertions and drop the `it.todo`s.
+ * With one (the `e2e-ollama` lane): the "durable execution" block below runs the
+ * examples for real and asserts a turn actually completed.
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -62,6 +61,24 @@ const TSX = join(
 
 const OLLAMA_ENDPOINT = process.env['OLLAMA_ENDPOINT'];
 const OLLAMA_MODEL = process.env['OLLAMA_MODEL'] ?? 'qwen3:0.6b';
+
+/**
+ * Whether the Dapr CLI is usable, i.e. whether a workflow can actually run.
+ *
+ * `dapr run` needs an initialized Dapr (`dapr init`, which needs Docker), so the
+ * probe invokes the CLI rather than merely looking for the binary.
+ */
+const HAS_DAPR = (() => {
+  try {
+    execFileSync('dapr', ['--version'], { stdio: 'ignore', timeout: 15_000 });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+/** The durable path needs both a sidecar and a model to be exercisable. */
+const CAN_RUN_WORKFLOWS = HAS_DAPR && Boolean(OLLAMA_ENDPOINT);
 
 interface RunResult {
   readonly code: number;
@@ -232,6 +249,108 @@ describe('examples/mastra: inspect-agent.ts', () => {
   );
 });
 
+/**
+ * The durable path, under a real sidecar.
+ *
+ * Everything else in this file runs the examples *without* Dapr, which checks
+ * their preflight behaviour but never executes a workflow. This block does, and
+ * it is the only automated check that would have caught the bug that shipped in
+ * the first cut: a sync `function*` orchestrator, which Dapr silently completes
+ * without running a single activity. The type-checker cannot see it, and the unit
+ * tests drive the generator directly so they cannot either — the sole symptom is
+ * an empty result.
+ *
+ * Runs in the `e2e-ollama` lane, which does `dapr init` and sets
+ * `OLLAMA_ENDPOINT`. Skips elsewhere, including the Windows leg of
+ * `integration.yaml`, which has no model.
+ */
+describe.runIf(CAN_RUN_WORKFLOWS)('examples/mastra: durable execution', () => {
+  /** Run an example under `dapr run`, exactly as the README instructs. */
+  async function runUnderDapr(
+    appId: string,
+    script: string,
+    timeout = 600_000
+  ): Promise<RunResult> {
+    const args = [
+      'run',
+      '--app-id',
+      appId,
+      '--resources-path',
+      './resources',
+      '--log-level',
+      'warn',
+      '--',
+      TSX,
+      script,
+    ];
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      OLLAMA_ENDPOINT,
+      OLLAMA_MODEL,
+    };
+    try {
+      const { stdout, stderr } = await execFileAsync('dapr', args, {
+        cwd: EXAMPLE_DIR,
+        env,
+        shell: IS_WINDOWS,
+        timeout,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      return { code: 0, stdout, stderr };
+    } catch (error) {
+      const failure = error as {
+        code?: number;
+        stdout?: string;
+        stderr?: string;
+      };
+      return {
+        code: failure.code ?? 1,
+        stdout: failure.stdout ?? '',
+        stderr: failure.stderr ?? '',
+      };
+    }
+  }
+
+  it('simple-agent.ts completes a real agent turn as a Dapr workflow', async () => {
+    const result = await runUnderDapr('e2e-mastra-simple', 'simple-agent.ts');
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    expect(output).toContain('Registered "dapr.mastra.SupportAgent.workflow"');
+    expect(output).toMatch(/Status:\s+completed/);
+
+    // The regression guard. A sync-generator orchestrator reports exactly
+    // `Iterations: 0` alongside status completed, because Dapr marks the
+    // instance complete without ever entering the loop.
+    const iterations = Number(/Iterations:\s+(\d+)/.exec(output)?.[1] ?? '0');
+    expect(
+      iterations,
+      'the workflow completed without running an iteration — is the ' +
+        'orchestrator a sync function* instead of an async function*?'
+    ).toBeGreaterThan(0);
+
+    // A turn that ran must have produced text. Small models vary in wording,
+    // so this asserts substance exists rather than what it says.
+    const answer = /Answer:\s+(.*)/.exec(output)?.[1]?.trim() ?? '';
+    expect(answer.length, `empty answer. output:\n${output}`).toBeGreaterThan(
+      0
+    );
+  }, 620_000);
+
+  it('retry.ts survives a failing tool without losing the turn', async () => {
+    const result = await runUnderDapr('e2e-mastra-retry', 'retry.ts');
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    expect(output).toMatch(/Status:\s+completed/);
+    // The tool fails twice by design, so a completed turn proves the failures
+    // were recovered from rather than swallowed.
+    expect(output).toContain('Attempt 1: failing on purpose');
+    expect(output).toContain('Attempt 3: succeeding');
+
+    const attempts = Number(/Tool attempts:\s+(\d+)/.exec(output)?.[1] ?? '0');
+    expect(attempts).toBeGreaterThanOrEqual(3);
+  }, 620_000);
+});
+
 describe('examples/mastra: scripts that require a Dapr sidecar', () => {
   // These are spawned WITHOUT `dapr run`, so `DAPR_GRPC_PORT` is unset and the
   // sidecar guard fires. Deterministic regardless of whether Dapr is installed
@@ -271,7 +390,9 @@ describe('examples/mastra: scripts that require a Dapr sidecar', () => {
     }
   );
 
-  it.todo('simple-agent.ts prints a model answer once the bridge lands');
+  // simple-agent and retry are covered for real by the "durable execution"
+  // block above, which runs them under `dapr run`. Only crash recovery is still
+  // unproven: it needs the model to chain several tool calls so the process can
+  // be killed between two of them, and a 7B model does not do that reliably.
   it.todo('crash-recovery.ts resumes without re-executing completed tools');
-  it.todo('retry.ts retries the flaky tool without re-invoking the model');
 });

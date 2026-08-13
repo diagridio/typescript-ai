@@ -18,20 +18,19 @@
  *
  * ## Status
  *
- * The adapter is a scaffold, so the full agent turn is an `it.todo` rather than
- * a test that pretends to pass. What runs today is real: the model endpoint is
- * reachable, and the workflow-name contract the sidecar registers under holds.
- * The final test asserts the *current* honest behaviour — an unimplemented
- * model bridge fails loudly — and is the one to replace when the bridge lands.
+ * This file covers the adapter's model *configuration* against a live Ollama —
+ * that the endpoint is reachable and the workflow-name contract holds. The full
+ * durable turn is covered by `mastra-examples.integration.test.ts`, which runs
+ * the examples under `dapr run`.
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
+import { Agent } from '@mastra/core/agent';
+
 import {
-  ACTIVITY_INVOKE_MODEL,
+  createModelInvoker,
   DaprWorkflowAgentRunner,
-  invokeModelActivity,
-  registerModelInvoker,
 } from '@diagrid/agent-mastra';
 
 const OLLAMA_ENDPOINT = process.env['OLLAMA_ENDPOINT'];
@@ -101,26 +100,33 @@ describe.skipIf(!OLLAMA_ENDPOINT)('Mastra adapter e2e (Ollama)', () => {
     expect(body.choices?.[0]?.message?.content).toBeTruthy();
   });
 
-  it('fails loudly rather than fabricating a result while unimplemented', async () => {
-    // Pin the honest failure. When the model bridge lands, replace this with
-    // the real assertion and delete the `it.todo` below.
-    const runner = new DaprWorkflowAgentRunner({ agent, name: 'e2e-agent' });
-    void runner;
-
-    registerModelInvoker(() => {
-      throw new Error(`${ACTIVITY_INVOKE_MODEL} is not implemented yet`);
+  it('the model bridge produces an assistant message from the live model', async () => {
+    // The bridge without Dapr in the way: one model call, real provider. Proves
+    // the transcript conversion and response mapping independently of the
+    // workflow, which `mastra-examples.integration.test.ts` covers.
+    //
+    // A *real* Agent, not the plain-object fixture the metadata tests use: the
+    // bridge calls `generate()`, and rightly refuses anything that lacks it.
+    const realAgent = new Agent({
+      id: 'e2e-agent',
+      name: 'e2e-agent',
+      instructions: 'Answer in one short word.',
+      model: {
+        id: `ollama/${OLLAMA_MODEL}`,
+        url: OLLAMA_ENDPOINT!,
+        apiKey: 'ollama',
+      },
     });
 
-    await expect(
-      invokeModelActivity({} as never, {
-        messages: [{ role: 'user', content: 'hi' }],
-        iteration: 0,
-        threadId: 'e2e-thread',
-      })
-    ).rejects.toThrow(/not implemented yet/);
-  });
+    const output = await createModelInvoker(realAgent)({
+      messages: [{ role: 'user', content: 'Say hello in one word.' }],
+      toolNames: [],
+      iteration: 0,
+      threadId: 'e2e-thread',
+    });
 
-  it.todo(
-    'executes a Mastra agent turn as a Dapr workflow and survives a mid-turn crash'
-  );
+    expect(output.message.role).toBe('assistant');
+    expect(output.message.content.length).toBeGreaterThan(0);
+    expect(output.requiresToolCalls).toBe(false);
+  });
 });

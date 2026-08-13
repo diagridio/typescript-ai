@@ -224,28 +224,59 @@ describe.skipIf(!allDistsBuilt)('runtime import isolation', () => {
     ).not.toThrow();
   });
 
+  // The manifest checks above state the intent; these check the artefact. tsup
+  // inlining a dependency would satisfy every manifest assertion while still
+  // shipping a second copy of it to each consumer — a mistake this repo made
+  // once already (see the `paths` note in tsconfig.build.json).
+  //
+  // The two dependencies need *opposite* assertions, which an earlier single
+  // test got wrong. It flagged any textual occurrence of a package name that
+  // wasn't an import as "inlined", and duly failed on the string
+  // `'expected a Mastra Agent from @mastra/core/agent.'` inside an error
+  // message. A substring search cannot tell code from prose; assert on imports
+  // instead.
+  const importPattern = (pkg: string) =>
+    new RegExp(`(?:from\\s*|require\\()\\s*["']${pkg}(?:/[^"']*)?["']`);
+
   it.each(ADAPTERS)(
-    '$pkg does not bundle its framework or the shared core',
+    '$pkg imports the shared core rather than inlining it',
     (adapter) => {
-      // The manifest checks above state the intent; this one checks the
-      // artefact. tsup inlining `@mastra/core` or `@diagrid/agent-core` would
-      // satisfy every manifest assertion while still shipping a second copy of
-      // the framework to every consumer — a mistake this repo has already made
-      // once during setup (see the `paths` note in tsconfig.build.json).
       const bundle = readFileSync(distEntry(adapter.dir), 'utf8');
 
-      for (const external of [adapter.frameworkPeer, CORE_PACKAGE_NAME]) {
-        if (!bundle.includes(external)) {
-          continue;
-        }
-        // Present is fine — as an import specifier. Inlined is not.
-        expect(
-          new RegExp(`from\\s*["']${external}["']`).test(bundle),
-          `${external} appears in ${adapter.pkg}'s bundle but not as an import — it looks inlined`
-        ).toBe(true);
-      }
+      expect(
+        importPattern(CORE_PACKAGE_NAME).test(bundle),
+        `${adapter.pkg} does not import ${CORE_PACKAGE_NAME} — it looks inlined`
+      ).toBe(true);
     }
   );
+
+  it.each(ADAPTERS)(
+    '$pkg never imports $frameworkPeer at runtime',
+    (adapter) => {
+      // The stronger invariant, and the reason the mapper duck-types instead of
+      // importing Mastra: the framework must not be in the runtime graph of
+      // anyone who installs this adapter. Mentioning it in an error message or a
+      // comment is fine; importing it is not.
+      const bundle = readFileSync(distEntry(adapter.dir), 'utf8');
+
+      expect(
+        importPattern(adapter.frameworkPeer).test(bundle),
+        `${adapter.pkg} imports ${adapter.frameworkPeer} — read the agent structurally instead`
+      ).toBe(false);
+    }
+  );
+
+  it.each(ADAPTERS)('$pkg stays small enough to be uninlined', (adapter) => {
+    // A blunt backstop for the case the import checks cannot see: if a
+    // framework ever *were* inlined, the bundle would balloon. The adapter is a
+    // few hundred lines of glue, so tens of KB is the right order of magnitude.
+    const bytes = readFileSync(distEntry(adapter.dir)).byteLength;
+
+    expect(
+      bytes,
+      `${adapter.pkg}'s bundle is ${Math.round(bytes / 1024)}KB — suspiciously large for glue code; is a dependency being inlined?`
+    ).toBeLessThan(200_000);
+  });
 });
 
 describe('runtime import isolation (prerequisite)', () => {

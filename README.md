@@ -17,14 +17,14 @@ This is the TypeScript sibling of
 
 Get started with [Diagrid Catalyst for free](https://diagrid.ws/get-catalyst).
 
-> ### 🚧 Status: scaffold
+> ### Status: working, not yet published
 >
-> This repository has just been initialized. The workspace, CI, Dependabot and
-> the test harness are in place, and the shared runtime in
-> `packages/core` is real, but the [Mastra](https://mastra.ai) adapter's bridge
-> into the framework is still a typed stub — see
-> [`packages/mastra/README.md`](packages/mastra/README.md) for exactly what
-> works today and what does not. Nothing here is published to npm yet.
+> The [Mastra](https://mastra.ai) adapter runs real agent turns as Dapr
+> Workflows, verified end to end against both a local sidecar and Diagrid
+> Catalyst: tool calls execute as separate checkpointed activities, and a process
+> killed mid-turn resumes without recomputing completed work. Nothing is
+> published to npm yet — see
+> [`packages/mastra/README.md`](packages/mastra/README.md) for the detail.
 
 ## Community
 
@@ -103,9 +103,9 @@ dapr run --app-id support-agent --resources-path ./resources -- node dist/agent.
 diagrid dev run --app-id support-agent -- node dist/agent.js
 ```
 
-> The `invoke()` call above will throw today: the model bridge is unimplemented.
-> The lifecycle, naming, registry metadata and durable control flow around it
-> are real and tested.
+> Expect two iterations: one model call requesting tools, then another turning
+> their results into an answer. Each step is a separate checkpointed activity, so
+> killing the process mid-turn and restarting resumes rather than re-running.
 
 ## How it works
 

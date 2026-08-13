@@ -38,20 +38,31 @@ interface ActivityCall {
  *
  * `results` are consumed in order, mirroring the sequence Dapr would replay.
  */
-function runWorkflow(
+async function runWorkflow(
   input: unknown,
   results: readonly unknown[]
-): { output: AgentWorkflowOutput; calls: ActivityCall[] } {
+): Promise<{ output: AgentWorkflowOutput; calls: ActivityCall[] }> {
   const calls: ActivityCall[] = [];
   const ctx = {
     callActivity: (activity: unknown, activityInput?: unknown) => {
       calls.push({ name: String(activity), input: activityInput });
       return activityInput;
     },
+    // The retry loop schedules durable timers between attempts. The driver
+    // records them so a test can assert backoff happened, and resolves them
+    // immediately so the suite stays fast.
+    createTimer: (fireAt: Date) => {
+      calls.push({ name: 'timer', input: fireAt });
+      return fireAt;
+    },
+    getCurrentUtcDateTime: () => new Date('2026-08-12T00:00:00.000Z'),
   } as unknown as WorkflowContext;
 
+  // Driven with `await` because the orchestrator is an `async function*` — which
+  // is a hard requirement of Dapr's executor, not a preference. See the note on
+  // `agentWorkflow`.
   const generator = agentWorkflow(ctx, input);
-  let step = generator.next();
+  let step = await generator.next();
   let index = 0;
 
   while (!step.done) {
@@ -60,8 +71,23 @@ function runWorkflow(
         `Workflow requested activity #${index + 1} but only ${results.length} results were scripted`
       );
     }
-    step = generator.next(results[index]);
+    // A backoff timer is not an activity, so it consumes nothing from the
+    // script — it just resolves, the way Dapr resolves it after the delay.
+    // Without this the next scripted failure would be thrown *at the timer's
+    // yield*, which sits inside the retry loop's catch block and so escapes it.
+    if (calls.at(-1)?.name === 'timer') {
+      step = await generator.next(undefined);
+      continue;
+    }
+
+    const scripted = results[index];
     index += 1;
+    // An `Error` in the script means "this activity failed", which is how Dapr
+    // surfaces a failed activity into the generator.
+    step =
+      scripted instanceof Error
+        ? await generator.throw(scripted)
+        : await generator.next(scripted);
   }
 
   return { output: step.value, calls };
@@ -86,10 +112,11 @@ afterEach(() => {
 });
 
 describe('agentWorkflow', () => {
-  it('completes on the first turn when the model needs no tools', () => {
-    const { output, calls } = runWorkflow({ prompt: 'hello', threadId: 't1' }, [
-      assistantText('hi there'),
-    ]);
+  it('completes on the first turn when the model needs no tools', async () => {
+    const { output, calls } = await runWorkflow(
+      { prompt: 'hello', threadId: 't1' },
+      [assistantText('hi there')]
+    );
 
     expect(output.status).toBe(WorkflowStatus.COMPLETED);
     expect(output.text).toBe('hi there');
@@ -98,8 +125,8 @@ describe('agentWorkflow', () => {
     expect(calls[0]?.name).toBe(ACTIVITY_INVOKE_MODEL);
   });
 
-  it('seeds the transcript with prior messages plus the new prompt', () => {
-    const { output } = runWorkflow(
+  it('seeds the transcript with prior messages plus the new prompt', async () => {
+    const { output } = await runWorkflow(
       {
         prompt: 'and now?',
         threadId: 't1',
@@ -115,8 +142,8 @@ describe('agentWorkflow', () => {
     ]);
   });
 
-  it('executes tool calls and feeds the results back to the model', () => {
-    const { output, calls } = runWorkflow(
+  it('executes tool calls and feeds the results back to the model', async () => {
+    const { output, calls } = await runWorkflow(
       { prompt: 'search for X', threadId: 't1' },
       [
         assistantToolCall('call-1', 'searchDocs', '{"query":"X"}'),
@@ -144,10 +171,10 @@ describe('agentWorkflow', () => {
     });
   });
 
-  it('surfaces a tool error to the model as the tool message', () => {
+  it('surfaces a tool error to the model as the tool message', async () => {
     // A failed tool is information for the model, not a workflow failure — the
     // model gets a chance to correct a bad call.
-    const { output } = runWorkflow({ prompt: 'go', threadId: 't1' }, [
+    const { output } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
       assistantToolCall('call-1', 'searchDocs', '{}'),
       { toolCallId: 'call-1', result: '', error: 'query is required' },
       assistantText('Let me rephrase.'),
@@ -157,8 +184,8 @@ describe('agentWorkflow', () => {
     expect(output.messages.at(-2)?.content).toBe('query is required');
   });
 
-  it('fails the workflow when the model call itself errors', () => {
-    const { output } = runWorkflow({ prompt: 'go', threadId: 't1' }, [
+  it('fails the workflow when the model call itself errors', async () => {
+    const { output } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
       { message: { role: 'assistant', content: '' }, error: 'rate limited' },
     ]);
 
@@ -167,10 +194,10 @@ describe('agentWorkflow', () => {
     expect(output.text).toBe('');
   });
 
-  it('fails rather than truncating when maxIterations is exhausted', () => {
+  it('fails rather than truncating when maxIterations is exhausted', async () => {
     // A runaway agent must not be reported as a completed one: the caller has
     // no other way to tell "the model stopped" from "we stopped it".
-    const { output } = runWorkflow(
+    const { output } = await runWorkflow(
       { prompt: 'loop forever', threadId: 't1', maxIterations: 2 },
       [
         assistantToolCall('c1', 'searchDocs', '{}'),
@@ -185,29 +212,34 @@ describe('agentWorkflow', () => {
     expect(output.iterations).toBe(2);
   });
 
-  it('treats an empty toolCalls list as a final answer', () => {
-    const { output, calls } = runWorkflow({ prompt: 'go', threadId: 't1' }, [
-      {
-        message: { role: 'assistant', content: 'ok', toolCalls: [] },
-        requiresToolCalls: true,
-      },
-    ]);
+  it('treats an empty toolCalls list as a final answer', async () => {
+    const { output, calls } = await runWorkflow(
+      { prompt: 'go', threadId: 't1' },
+      [
+        {
+          message: { role: 'assistant', content: 'ok', toolCalls: [] },
+          requiresToolCalls: true,
+        },
+      ]
+    );
 
     expect(calls).toHaveLength(1);
     expect(output.status).toBe(WorkflowStatus.COMPLETED);
   });
 
-  it('rejects malformed workflow input at the boundary', () => {
-    expect(() => runWorkflow({ threadId: 't1' }, [])).toThrow();
+  it('rejects malformed workflow input at the boundary', async () => {
+    // `rejects` rather than `toThrow`: an async generator surfaces a throw from
+    // its body as a rejected promise, not a synchronous exception.
+    await expect(runWorkflow({ threadId: 't1' }, [])).rejects.toThrow();
   });
 
-  it('rejects a malformed activity result on replay', () => {
+  it('rejects a malformed activity result on replay', async () => {
     // Activity output comes back from the state store, i.e. from outside the
     // process. A schema change that would mis-read an in-flight workflow has
     // to fail here rather than corrupt the transcript.
-    expect(() =>
+    await expect(
       runWorkflow({ prompt: 'go', threadId: 't1' }, [{ nonsense: true }])
-    ).toThrow();
+    ).rejects.toThrow();
   });
 });
 
@@ -287,5 +319,57 @@ describe('registries', () => {
     clearRegistries();
 
     expect(registeredToolNames()).toEqual([]);
+  });
+});
+
+describe('tool retry', () => {
+  // The JS Dapr SDK has no activity RetryPolicy, so the orchestrator retries in
+  // place. These pin that behaviour: it is the difference between a rate limit
+  // costing a retry and costing a full LLM round trip.
+  it('retries a failed tool activity and continues on success', async () => {
+    const { output, calls } = await runWorkflow(
+      { prompt: 'go', threadId: 't1' },
+      [
+        assistantToolCall('c1', 'searchDocs', '{}'),
+        new Error('ECONNRESET'), // attempt 1 fails
+        new Error('ECONNRESET'), // attempt 2 fails
+        { toolCallId: 'c1', result: '{"ok":true}' }, // attempt 3 succeeds
+        assistantText('done'),
+      ]
+    );
+
+    expect(output.status).toBe(WorkflowStatus.COMPLETED);
+    // Three tool attempts, and the model was called only twice — the retries did
+    // not go back through the model.
+    const toolAttempts = calls.filter(
+      (c) => c.name === ACTIVITY_INVOKE_TOOL
+    ).length;
+    const modelCalls = calls.filter(
+      (c) => c.name === ACTIVITY_INVOKE_MODEL
+    ).length;
+    expect(toolAttempts).toBe(3);
+    expect(modelCalls).toBe(2);
+    // Backoff between attempts, as durable timers.
+    expect(calls.filter((c) => c.name === 'timer')).toHaveLength(2);
+  });
+
+  it('reports the failure to the model once retries are exhausted', async () => {
+    const { output } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
+      assistantToolCall('c1', 'searchDocs', '{}'),
+      new Error('still down'),
+      new Error('still down'),
+      new Error('still down'),
+      assistantText('I could not reach that tool.'),
+    ]);
+
+    // The turn survives: a permanently broken tool becomes information for the
+    // model, not a failed conversation.
+    expect(output.status).toBe(WorkflowStatus.COMPLETED);
+    expect(output.messages.some((m) => m.content.includes('still down'))).toBe(
+      true
+    );
+    expect(
+      output.messages.some((m) => m.content.includes('after 3 attempts'))
+    ).toBe(true);
   });
 });

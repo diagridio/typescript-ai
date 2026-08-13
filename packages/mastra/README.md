@@ -10,23 +10,24 @@ completed.
 
 ## Status
 
-**Scaffold.** This package compiles, is unit-tested, and its public API is
-settled — but the two bridges into Mastra are typed stubs. Concretely:
+Working, and verified by running it rather than by inspection — against a local
+`dapr run` sidecar and against Diagrid Catalyst, with Ollama (`qwen2.5:7b`) as the
+model.
 
-| Area                                              | State                                            |
-| ------------------------------------------------- | ------------------------------------------------ |
-| Runner lifecycle (`start`/`shutdown`/signals)     | ✅ implemented                                   |
-| Canonical workflow naming                         | ✅ implemented, matches the Python SDK           |
-| Registry metadata (`MastraAgentMapper`)           | ✅ implemented (all model forms + tools)         |
-| Zod I/O models for the workflow boundary          | ✅ implemented                                   |
-| Checkpoint persistence (`DaprMastraCheckpointer`) | ✅ implemented                                   |
-| Durable agent loop (`agentWorkflow`)              | ✅ implemented and unit-tested                   |
-| **Model bridge** (`invokeModel` → Mastra's model) | ❌ `TODO(mastra-adapter)` — throws               |
-| **Tool bridge** (`invokeTool` → Mastra's tools)   | ❌ `TODO(mastra-adapter)` — reports unknown tool |
+| Area                                        | State                                                           |
+| ------------------------------------------- | --------------------------------------------------------------- |
+| Runner lifecycle, naming, registry metadata | ✅                                                              |
+| Durable agent loop (`agentWorkflow`)        | ✅ model call → tool activities → repeat                        |
+| Model bridge                                | ✅ one step per iteration via `clientTools`                     |
+| Tool bridge                                 | ✅ one checkpointed activity per tool call                      |
+| Checkpoint persistence                      | ✅                                                              |
+| Crash recovery                              | ✅ tool ran exactly once across a mid-turn kill                 |
+| Dapr activity `RetryPolicy`                 | ❌ `TODO(mastra-adapter)` — tool errors go to the model instead |
+| Component discovery for registry metadata   | ❌ `TODO(mastra-adapter)`                                       |
+| Tools needing `RequestContext` / workspace  | ❌ `TODO(mastra-adapter)`                                       |
 
-Unimplemented paths throw or report an error rather than returning a
-plausible-looking result, so nothing here can be mistaken for a working
-integration. `grep -rn 'TODO(mastra-adapter)' src` lists everything outstanding.
+`grep -rn 'TODO(mastra-adapter)' src` lists what is left. `tests/e2e/` runs the
+examples under a real sidecar in CI, so these claims stay honest.
 
 ## Install
 

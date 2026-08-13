@@ -20,16 +20,9 @@
  * Run — Diagrid Catalyst (components come from the project, so no resources path):
  *   diagrid dev run --app-id mastra-simple -- pnpm simple
  *
- * ## Status
- *
- * This script does not complete yet. The adapter's model bridge is a
- * `TODO(mastra-adapter)` stub in `packages/mastra/src/runner.ts`, so `invoke()`
- * fails at the first model call with an explicit "not implemented" error rather
- * than returning a fabricated answer. Everything up to that point — runtime
- * start, workflow registration, scheduling, the durable loop — is real.
- *
- * Treat this file as the acceptance criterion for that work: when it prints an
- * answer, the bridge is done.
+ * Expect two iterations for the prompt below: one model call that asks for the
+ * `calculate` and `getWeather` tools, then a second that turns their results into
+ * an answer. Each of those steps is a separate checkpointed activity.
  */
 
 import { Agent } from '@mastra/core/agent';
@@ -89,20 +82,6 @@ async function main(): Promise<void> {
     console.log(`Iterations: ${result.iterations}`);
     console.log(`Answer:     ${result.text}`);
     console.log('='.repeat(60));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('not implemented yet')) {
-      // Expected today. Say so plainly instead of dumping a stack trace that
-      // looks like a bug in the reader's setup.
-      console.error(`\nThe adapter is still a scaffold: ${message}`);
-      console.error(
-        'Implement the model bridge in packages/mastra/src/runner.ts ' +
-          '(grep for TODO(mastra-adapter)) and this example will complete.'
-      );
-      process.exitCode = 1;
-      return;
-    }
-    throw error;
   } finally {
     disposeHandlers();
     await runner.shutdown();

@@ -5,27 +5,18 @@ Durable [Mastra](https://mastra.ai) agents on Dapr Workflows, using
 
 ## Status
 
-The adapter's model and tool bridges are still `TODO(mastra-adapter)` stubs, so
-only one of these scripts completes today. The others are written against the
-finished API and fail explicitly: without a sidecar they tell you the `dapr run`
-command to use, and under a sidecar they fail at the first model call with a
-"not implemented" message. They are the acceptance criteria for that work, not
-decoration.
+All four scripts work. Verified against both run paths with Ollama
+(`qwen2.5:7b` — a 0.6b model is too weak to call tools reliably).
 
-| Script              | Runs today?             | Needs a sidecar | Needs an API key |
-| ------------------- | ----------------------- | --------------- | ---------------- |
-| `inspect-agent.ts`  | ✅ yes                  | no (optional)   | no               |
-| `simple-agent.ts`   | ❌ model bridge missing | yes             | yes¹             |
-| `crash-recovery.ts` | ❌ model bridge missing | yes             | yes¹             |
-| `retry.ts`          | ❌ model bridge missing | yes             | yes¹             |
+| Script              | What it proves                                    | Needs a sidecar | Needs a model |
+| ------------------- | ------------------------------------------------- | --------------- | ------------- |
+| `inspect-agent.ts`  | the registry record Catalyst renders              | no (optional)   | no            |
+| `simple-agent.ts`   | a durable turn: 2 iterations, tools as activities | yes             | yes           |
+| `crash-recovery.ts` | a mid-turn kill resumes; the tool ran **once**    | yes             | yes           |
+| `retry.ts`          | a failing tool is recovered from, turn survives   | yes             | yes           |
 
-¹ Unless you set `OLLAMA_ENDPOINT`, in which case a local model is used and no
-key is needed.
-
-`tests/e2e/mastra-examples.integration.test.ts` executes all four in CI. It
-verifies `inspect-agent.ts`'s output field by field, and verifies the other three
-fail with an actionable message — no gRPC stack traces, and never a claim of
-success.
+`tests/e2e/mastra-examples.integration.test.ts` runs `simple-agent` and `retry`
+under `dapr run` in CI, so these claims cannot rot.
 
 ## Two ways to run
 

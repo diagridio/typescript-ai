@@ -126,13 +126,23 @@ export const agentWorkflowInputSchema = z.object({
 });
 
 /** Output of the top-level agent workflow. */
+/**
+ * Output of the top-level agent workflow.
+ *
+ * Deliberately **without defaults**, unlike the input schema. An earlier version
+ * defaulted every field, which meant an empty workflow output (`{}` or `null`)
+ * parsed cleanly into `{ text: '', iterations: 0, status: 'completed' }` — a
+ * successful-looking empty turn. That masked a workflow that completed without
+ * running a single activity. Requiring the fields makes that failure loud, which
+ * is the whole point of validating at this boundary.
+ */
 export const agentWorkflowOutputSchema = z.object({
-  /** Final assistant text. */
-  text: z.string().default(''),
+  /** Final assistant text. Empty is legal, absent is not. */
+  text: z.string(),
   /** Full transcript including tool calls and results. */
-  messages: z.array(messageSchema).default([]),
-  iterations: z.number().int().nonnegative().default(0),
-  status: workflowStatusSchema.default(WorkflowStatus.COMPLETED),
+  messages: z.array(messageSchema),
+  iterations: z.number().int().nonnegative(),
+  status: workflowStatusSchema,
   error: z.string().optional(),
 });
 

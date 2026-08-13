@@ -27,6 +27,13 @@ export type {
   WorkflowContext,
   WorkflowFailureDetails,
   WorkflowRuntime,
-  WorkflowRuntimeStatus,
   WorkflowState,
 } from '@dapr/dapr';
+
+/**
+ * Re-exported as a *value*, unlike everything above: `WorkflowRuntimeStatus` is
+ * an enum, and adapters need to compare against its members (`=== COMPLETED`) to
+ * tell a completed workflow from a failed one. A type-only re-export compiles
+ * fine right up until someone tries to use it.
+ */
+export { WorkflowRuntimeStatus } from '@dapr/dapr';
