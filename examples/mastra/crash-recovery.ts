@@ -37,10 +37,13 @@
  * also lands in the right place: by then the first model call and the tool call
  * have both completed and been checkpointed as Dapr activities, so run 2 must
  * replay them from history rather than recompute them. The counters in the state
- * file are what prove it — if either number grows on run 2, durability is broken.
+ * file are what prove it — `modelCalls` growing by one on run 2 is expected — that is the interrupted
+ * call completing for real. `toolRuns` growing is the failure: it would mean a
+ * checkpointed result was recomputed instead of replayed, which is the one
+ * thing this script checks.
  *
- * `registerModelInvoker` is public API, and `createModelInvoker` is the adapter's
- * real implementation, so the wrapper below delegates rather than faking a model.
+ * `setModelInvoker` is public API and `runner.modelInvoker` is the adapter's real
+ * implementation, so the wrapper below delegates rather than faking a model.
  *
  * ## The workflow id matters
  *
@@ -58,9 +61,8 @@ import { join } from 'node:path';
 import { Agent } from '@mastra/core/agent';
 import { createTool } from '@mastra/core/tools';
 import {
-  createModelInvoker,
   DaprWorkflowAgentRunner,
-  registerModelInvoker,
+  type InvokeModelInput,
 } from '@diagrid/agent-mastra';
 import { z } from 'zod';
 
@@ -145,10 +147,11 @@ async function main(): Promise<void> {
   try {
     await runner.start();
 
-    // Must come after start(): the runner registers the real invoker during
-    // startup, and this replaces it with a counting wrapper around it.
-    const realInvoker = createModelInvoker(agent);
-    registerModelInvoker(async (input) => {
+    // Wrap the runner's own invoker with a counter. `setModelInvoker` is the
+    // supported hook; the runner reads it through an accessor, so replacing it
+    // after `start()` takes effect for activities already registered.
+    const realInvoker = runner.modelInvoker;
+    runner.setModelInvoker(async (input: InvokeModelInput) => {
       const state = loadState();
 
       if (state.modelCalls + 1 === CRASH_ON_MODEL_CALL && !state.crashed) {

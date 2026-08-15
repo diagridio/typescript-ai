@@ -227,7 +227,7 @@ function resolveModel(
  * Render a tool's input schema as JSON Schema for the registry.
  *
  * Mastra tools carry a Zod `inputSchema`. Zod 4 can emit JSON Schema itself,
- * so no extra dependency is needed; Zod 3 (also inside our peer range) cannot,
+ * so no extra dependency is needed; Zod 3 cannot,
  * and a schema containing transforms or custom refinements is not
  * representable at all. Every one of those cases degrades to an empty string —
  * the registry shows the tool without its argument shape rather than showing

@@ -69,8 +69,6 @@ export const messageSchema = z.object({
 export const invokeModelInputSchema = z.object({
   /** Conversation so far, oldest first. */
   messages: z.array(messageSchema),
-  /** Tool definitions offered to the model on this turn. */
-  toolNames: z.array(z.string()).default([]),
   /** Iteration index within the agent loop, for tracing and step caps. */
   iteration: z.number().int().nonnegative(),
   threadId: z.string(),
@@ -123,6 +121,21 @@ export const agentWorkflowInputSchema = z.object({
   maxIterations: z.number().int().positive().default(25),
   /** Opaque per-run metadata forwarded to Mastra's runtime context. */
   runtimeContext: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * Activity names this turn must call, scoped to the runner that scheduled it.
+   *
+   * Workflow names are already per-agent (`dapr.<framework>.<Agent>.workflow`),
+   * but activity names were shared literals. Two runners in one process register
+   * their own closures under those same names on separate worker streams against
+   * the same sidecar, and the work-item request carries no capability list — so
+   * the sidecar could hand runner A's tool call to runner B's connection, where a
+   * handler exists and would answer it with B's tools. The orchestrator therefore
+   * calls names carried in its own input rather than module constants.
+   *
+   * Optional so a workflow scheduled by an older version still runs: absent, it
+   * falls back to the unscoped names.
+   */
+  activityNames: z.object({ model: z.string(), tool: z.string() }).optional(),
 });
 
 /** Output of the top-level agent workflow. */
@@ -167,7 +180,16 @@ export type InvokeModelInput = z.infer<typeof invokeModelInputSchema>;
 export type InvokeModelOutput = z.infer<typeof invokeModelOutputSchema>;
 export type InvokeToolInput = z.infer<typeof invokeToolInputSchema>;
 export type InvokeToolOutput = z.infer<typeof invokeToolOutputSchema>;
-export type AgentWorkflowInput = z.infer<typeof agentWorkflowInputSchema>;
+/**
+ * `z.input`, not `z.infer`.
+ *
+ * `z.infer` is the schema's *output* type, where `.default()`s have already been
+ * applied — so `messages` and `maxIterations` come out required and
+ * `invoke({ prompt, threadId })` does not compile. This is the caller-facing
+ * type, so it has to be the input side. The quickstart in the READMEs and in
+ * runner.ts is exactly that two-field call.
+ */
+export type AgentWorkflowInput = z.input<typeof agentWorkflowInputSchema>;
 export type AgentWorkflowOutput = z.infer<typeof agentWorkflowOutputSchema>;
 export type Checkpoint = z.infer<typeof checkpointSchema>;
 export type CheckpointIndex = z.infer<typeof checkpointIndexSchema>;

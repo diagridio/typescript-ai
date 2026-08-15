@@ -19,6 +19,7 @@ export { VERSION } from './version';
 
 export {
   DaprWorkflowAgentRunner,
+  WorkflowTimeoutError,
   type DaprWorkflowAgentRunnerOptions,
 } from './runner';
 
@@ -41,15 +42,16 @@ export {
 export {
   ACTIVITY_INVOKE_MODEL,
   ACTIVITY_INVOKE_TOOL,
+  ACTIVITY_MAX_ATTEMPTS,
+  ACTIVITY_RETRY_BASE_DELAY_MS,
+  activityNamesFor,
+  MAX_TOOL_RESULT_CHARS,
   agentWorkflow,
-  clearRegistries,
   invokeModelActivity,
   invokeToolActivity,
-  registeredToolNames,
-  registerModelInvoker,
-  registerToolInvoker,
   type ModelInvoker,
   type ToolInvoker,
+  type ToolInvokers,
 } from './workflow';
 
 export {

@@ -17,34 +17,28 @@
  * first-class concept rather than a trick.
  *
  * The obvious-looking alternative is to pass the agent's own `tools` and let
- * Mastra drive. That does not work here, and the reason is worth recording
- * because the failure is silent and looks like a broken model:
+ * Mastra drive. Do not: with agent-level tools Mastra executes the tool body
+ * *inside* `generate()`, where it is not a checkpointed activity — and the
+ * orchestrator still schedules `invokeTool` for the same call afterwards, so the
+ * tool runs **twice**, once durably and once not. A crash between them loses the
+ * un-checkpointed side effect while the workflow believes the step succeeded.
  *
- *   Agent-level `tools` (with `execute`) + `maxSteps: 1`
- *     -> `toolCalls: []`, `toolResults: []`, the tool body never runs, and the
- *        model emits its tool call as raw *text* with its chat template leaking
- *        (`...{"name":"getWeather",...}</tool_c`). Nothing throws.
+ * Measured with a mock AI SDK v2 model, no network. Both rows are pinned by
+ * `tests/mastra/bridge.test.ts` — the first by a positive control that calls
+ * `agent.generate()` directly, without which the second row could not tell a
+ * working mitigation from a harness that never executes tool bodies at all:
  *
- *   `clientTools` (definitions only) + `maxSteps: 1`
- *     -> a structured call: `{ payload: { toolCallId, toolName, args } }`,
- *        unexecuted, `text: ''`.
+ *   agent's own `tools` + `maxSteps: 1`      -> tool body executed: 1
+ *   `definitionOnlyTools` as `clientTools`   -> tool body executed: 0
  *
- * The model is not at fault, which was checked rather than assumed. Ollama
- * reports `qwen2.5:7b` as `completion tools`, and a **raw** OpenAI-compatible
- * request carrying a `tools` array returns `finish_reason: tool_calls` with a
- * proper structured `tool_calls` entry. So the capability is there; in the first
- * case the schemas never reached the model.
+ * So `clientTools` + `maxSteps: 1` is a pair. Raising maxSteps to "let it
+ * finish" moves the loop back inside Mastra, out of the workflow's control.
  *
- * Working hypothesis for why: with `maxSteps: 1` Mastra has no second step in
- * which to use tool results, so it omits agent-level tool schemas — whereas
- * `clientTools` tells it the caller will execute them, so it sends them anyway.
- * Unverified against Mastra's source, but it fits both observations.
- *
- * Practical consequence: `clientTools` + `maxSteps: 1` is a pair. Dropping
- * either — passing agent tools, or raising maxSteps to "let it finish" — either
- * silently stops tool calling or moves execution back inside Mastra, where it is
- * not checkpointed and a crash loses it. If you change this, re-run the
- * comparison above against a tool-capable model first.
+ * (An earlier note here claimed agent-level tools produced `toolCalls: []` and
+ * that Mastra omits their schemas at `maxSteps: 1`. That was generalised from a
+ * single Ollama run where the model emitted its call as text; it does not
+ * reproduce against a mock model, and the schemas are sent in both cases. The
+ * conclusion was right for the wrong reason.)
  */
 
 import type {
@@ -93,7 +87,7 @@ interface MastraGenerateResult {
 /** The subset of a Mastra `Agent` the bridge calls. */
 interface GeneratingAgent extends MastraAgentLike {
   generate(
-    prompt: string,
+    messages: string | Record<string, unknown>[],
     options: Record<string, unknown>
   ): Promise<MastraGenerateResult>;
   listTools?: () =>
@@ -210,10 +204,21 @@ export function toModelMessages(
   return converted;
 }
 
-/** Parse JSON, falling back to the raw string when it is not JSON. */
+/**
+ * Parse JSON, falling back to the raw string when it is not JSON.
+ *
+ * `__proto__` and `constructor` keys are dropped during parsing. These strings
+ * come from the model, and a model's output is untrusted input the moment a
+ * retrieved document or a tool result can influence it. Tools with a Zod
+ * `inputSchema` are already safe (zod 4 strips unknown keys), but a tool without
+ * one receives this object directly — and a body doing `Object.assign(defaults,
+ * args)` or a lodash `merge` turns an own `__proto__` into prototype pollution.
+ */
 function safeParse(value: string): unknown {
   try {
-    return JSON.parse(value);
+    return JSON.parse(value, (key: string, parsed: unknown) =>
+      key === '__proto__' || key === 'constructor' ? undefined : parsed
+    ) as unknown;
   } catch {
     return value;
   }
@@ -236,24 +241,31 @@ export function createModelInvoker(agent: MastraAgentLike) {
     );
   }
 
+  // Read once, not per iteration. `listTools()` may be backed by something
+  // remote (an MCP client), and an agent's tool definitions do not change
+  // between iterations of a turn — re-reading them was a round trip per model
+  // call for an identical answer.
+  let clientToolsPromise: Promise<Record<string, MastraTool>> | undefined;
+
   return async (input: InvokeModelInput): Promise<InvokeModelOutput> => {
-    const clientTools = await definitionOnlyTools(agent);
+    clientToolsPromise ??= definitionOnlyTools(agent);
+    const clientTools = await clientToolsPromise;
 
-    // The final user turn is the prompt; everything before it is context. The
-    // whole transcript is replayed every iteration because the workflow, not
-    // Mastra, is holding the conversation.
-    const history = [...input.messages];
-    const lastUser = history.at(-1);
-    const prompt =
-      lastUser?.role === 'user' ? lastUser.content : (lastUser?.content ?? '');
-    const context = toModelMessages(
-      lastUser?.role === 'user' ? history.slice(0, -1) : history
-    );
-
-    const result = await generating.generate(prompt, {
+    // The whole transcript goes in as messages, in one place.
+    //
+    // An earlier version split it into `prompt` (the last message) plus
+    // `context` (the rest). That is wrong from iteration 2 onwards: the
+    // orchestrator guarantees the transcript ends with a `tool` message
+    // whenever there were tool calls, so the tool result became *both* the
+    // prompt and a context entry. Mastra coerces the prompt to a user message,
+    // so the model saw its own tool output a second time as if the user had
+    // typed it — which invites it to call the same tool again.
+    //
+    // The workflow, not Mastra, holds the conversation, so the full transcript
+    // is passed on every iteration.
+    const result = await generating.generate(toModelMessages(input.messages), {
       // One step: the loop lives in the workflow.
       maxSteps: 1,
-      ...(context.length > 0 ? { context } : {}),
       ...(Object.keys(clientTools).length > 0 ? { clientTools } : {}),
     });
 
@@ -327,7 +339,19 @@ export async function createToolInvokers(
       continue;
     }
 
-    invokers.set(tool.id ?? name, async (input) => {
+    // Keyed by the `tools` record key, NOT `tool.id`.
+    //
+    // Mastra's `listClientTools` iterates `Object.entries(clientTools)` and
+    // registers each under its key, so that is the name the model asks for. When
+    // the two differ — `createTool({ id: 'lookup_order_status' })` placed at
+    // `{ lookupOrder }` — keying by id makes every call miss, and
+    // `invokeToolActivity` returns "Unknown tool" as a *successful* activity
+    // output. That gets checkpointed permanently and fed back to the model as a
+    // real tool result, burning iterations until the cap.
+    //
+    // Invisible in every fixture here because they all use the shorthand where
+    // key and id coincide.
+    invokers.set(name, async (input) => {
       // Validate first, outside the retry-able region. Bad arguments are the
       // *model's* mistake, and re-running the same call cannot fix them — so
       // this returns a tool error, which goes back to the model as a result it
@@ -366,7 +390,7 @@ export async function createToolInvokers(
         // Deliberately rethrown rather than reported as a tool result.
         //
         // A throw from the tool body surfaces as an *activity failure*, which is
-        // what lets the orchestrator retry it (see `TOOL_MAX_ATTEMPTS` in
+        // what lets the orchestrator retry it (see `ACTIVITY_MAX_ATTEMPTS` in
         // ./workflow.ts) without involving the model at all. Returning it as a
         // result instead would send every transient fault — a rate limit, a
         // dropped connection — on a full round trip through the LLM.

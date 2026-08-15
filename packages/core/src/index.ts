@@ -34,8 +34,8 @@ export type {
   WorkflowState,
 } from './workflow/dapr';
 
-// A value, not a type — see the note in ./workflow/dapr.ts.
-export { WorkflowRuntimeStatus } from './workflow/dapr';
+// Declared locally, not re-exported from @dapr/dapr — see ./workflow/status.ts.
+export { WorkflowRuntimeStatus, workflowStatusName } from './workflow/status';
 
 export {
   BaseWorkflowRunner,

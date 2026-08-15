@@ -119,9 +119,12 @@ to orchestrate agent execution:
    can host agents in any of them).
 2. **Activities** — every LLM call and every tool execution becomes a durable
    activity. Activities may be non-deterministic; the orchestrator may not.
-3. **State store** — Dapr saves workflow state after every activity. A separate
-   checkpointer persists conversation transcripts, so a _new_ workflow can pick
-   up a thread an earlier one finished.
+3. **State store** — Dapr saves workflow state after every activity, which is
+   what lets a killed process resume mid-turn. Carrying a thread _across_ turns
+   is not wired up yet: `DaprMastraCheckpointer` exists but nothing calls it, so
+   continuing a conversation today means passing the prior `messages` into
+   `invoke()` yourself. See the status table in
+   [`packages/mastra/README.md`](./packages/mastra/README.md).
 
 Your code runs anywhere — laptop, Kubernetes, EC2 — while the workflow engine
 owns the agent's execution state.

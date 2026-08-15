@@ -49,6 +49,12 @@ jobs:
         if: runner.os == 'Linux'
         run: dapr init
 
+      # No OLLAMA_ENDPOINT here on purpose: this lane has no model, so the
+      # durable-execution block skips and what runs is the no-sidecar half. The
+      # Dapr setup above still earns its place — it is what makes a *future*
+      # sidecar-only test runnable here — but the full turn is covered by
+      # e2e-ollama.yaml, which has both. Do not set DIAGRID_E2E_REQUIRED here;
+      # it would fail this lane by design.
       - name: Run integration tests
         run: pnpm test:integration
 

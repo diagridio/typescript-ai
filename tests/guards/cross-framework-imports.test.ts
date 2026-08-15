@@ -33,6 +33,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -235,18 +236,132 @@ describe.skipIf(!allDistsBuilt)('runtime import isolation', () => {
   // `'expected a Mastra Agent from @mastra/core/agent.'` inside an error
   // message. A substring search cannot tell code from prose; assert on imports
   // instead.
-  const importPattern = (pkg: string) =>
-    new RegExp(`(?:from\\s*|require\\()\\s*["']${pkg}(?:/[^"']*)?["']`);
+  //
+  // The pattern must cover every form that is a real runtime import, not just
+  // the two obvious ones. An earlier version matched only `from '…'` and
+  // `require('…')`, which a bare side-effect import (`import '@mastra/core'`) or
+  // a dynamic one (`await import('@mastra/core')`) walked straight past — and
+  // the dynamic form is exactly what is tempting in `bridge.ts` if someone
+  // replaces the duck-typed `generate` check with `instanceof Agent`.
+  /**
+   * Every module specifier the file imports at runtime, read from the AST.
+   *
+   * Text matching cannot do this job, and this guard hit both of its failure
+   * directions while it was being written:
+   *
+   * - **False positive**, which shipped. An earlier version flagged any occurrence of a package
+   *   name and failed on the string `'expected a Mastra Agent from
+   *   @mastra/core/agent.'` inside an error message.
+   * - **False negative**, caught before it shipped. Stripping comments with a
+   *   regex before matching is
+   *   worse than it looks: `/\*` inside a *string literal* opens a comment as
+   *   far as the regex is concerned, and everything up to the next comment terminator — a real
+   *   `import('@mastra/core/agent')` included — disappears from the text being
+   *   searched. The guard then passes while the bundle does the exact thing it
+   *   exists to forbid.
+   *
+   * A parser has no such ambiguity: string literals, comments, and regex
+   * literals are distinct nodes, so prose is skipped and code is not. The cost
+   * is parsing a few hundred KB in a test, which is immaterial.
+   */
+  const importedModules = (path: string): string[] => {
+    const source = ts.createSourceFile(
+      path,
+      readFileSync(path, 'utf8'),
+      ts.ScriptTarget.Latest,
+      // setParentNodes: needed to tell `import type` from a value import.
+      true,
+      /\.c?js$/.test(path) ? ts.ScriptKind.JS : ts.ScriptKind.TS
+    );
+
+    const specifiers: string[] = [];
+
+    const record = (node: ts.Node | undefined): void => {
+      if (node && ts.isStringLiteralLike(node)) {
+        specifiers.push(node.text);
+      }
+    };
+
+    const visit = (node: ts.Node): void => {
+      // `import … from '…'`, a bare `import '…'`, and `export … from '…'`.
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+        // A type-only import is erased before it reaches a consumer, so it is
+        // not a runtime import and must not fail the framework check — which is
+        // the whole point of `import type { Agent }` in the mapper.
+        const typeOnly = ts.isImportDeclaration(node)
+          ? node.importClause?.isTypeOnly
+          : node.isTypeOnly;
+        if (!typeOnly) {
+          record(node.moduleSpecifier);
+        }
+      }
+
+      // Any call argument that is a bare module specifier.
+      //
+      // Deliberately broader than `import(…)`/`require(…)`, because matching on
+      // the *callee* misses every indirection — and one of them is a two-line
+      // bypass demonstrated against an earlier version of this guard:
+      //
+      //   const req = createRequire(import.meta.url);
+      //   req('@mastra/core');          // callee is `req`, not `require`
+      //
+      // That bundle genuinely loaded the framework at runtime and the guard
+      // passed. So the argument is what gets inspected, not the callee.
+      //
+      // Prose stays safe because the comparison is against the *whole* string:
+      // the error message `'… expected a Mastra Agent from @mastra/core/agent.'`
+      // is a sentence, not a specifier, so it does not match.
+      if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+        for (const argument of node.arguments ?? []) {
+          record(argument);
+        }
+      }
+
+      ts.forEachChild(node, visit);
+    };
+
+    ts.forEachChild(source, visit);
+    return specifiers;
+  };
+
+  /**
+   * Does this file import `pkg`, or any subpath of it, at runtime?
+   *
+   * The known limit, stated rather than papered over: a specifier assembled at
+   * runtime (`load('@mastra' + '/core')`, or read from a variable) is invisible
+   * to any static check. The bundle-size backstop below is the only thing that
+   * would notice such a case, and only if the framework were inlined outright.
+   */
+  const imports = (path: string, pkg: string): boolean =>
+    importedModules(path).some(
+      (specifier) => specifier === pkg || specifier.startsWith(`${pkg}/`)
+    );
+
+  /**
+   * Every artefact a consumer can load, not just the ESM entry.
+   *
+   * `package.json` sets `main` to `dist/index.cjs`, which is what CJS consumers
+   * get, and the declaration files are produced by a *different* tsconfig — so a
+   * regression in either was previously invisible.
+   */
+  const artefacts = (dir: string) =>
+    ['index.js', 'index.cjs', 'index.d.ts', 'index.d.cts']
+      .map((file) => join(PACKAGES_DIR, dir, 'dist', file))
+      .filter((path) => existsSync(path));
 
   it.each(ADAPTERS)(
     '$pkg imports the shared core rather than inlining it',
     (adapter) => {
-      const bundle = readFileSync(distEntry(adapter.dir), 'utf8');
-
-      expect(
-        importPattern(CORE_PACKAGE_NAME).test(bundle),
-        `${adapter.pkg} does not import ${CORE_PACKAGE_NAME} — it looks inlined`
-      ).toBe(true);
+      // Only the executable artefacts: a .d.ts re-exports types, which does not
+      // require a runtime import of core.
+      for (const path of artefacts(adapter.dir).filter((p) =>
+        /\.c?js$/.test(p)
+      )) {
+        expect(
+          imports(path, CORE_PACKAGE_NAME),
+          `${path} does not import ${CORE_PACKAGE_NAME} — it looks inlined`
+        ).toBe(true);
+      }
     }
   );
 
@@ -257,12 +372,12 @@ describe.skipIf(!allDistsBuilt)('runtime import isolation', () => {
       // importing Mastra: the framework must not be in the runtime graph of
       // anyone who installs this adapter. Mentioning it in an error message or a
       // comment is fine; importing it is not.
-      const bundle = readFileSync(distEntry(adapter.dir), 'utf8');
-
-      expect(
-        importPattern(adapter.frameworkPeer).test(bundle),
-        `${adapter.pkg} imports ${adapter.frameworkPeer} — read the agent structurally instead`
-      ).toBe(false);
+      for (const path of artefacts(adapter.dir)) {
+        expect(
+          imports(path, adapter.frameworkPeer),
+          `${path} imports ${adapter.frameworkPeer} — read the agent structurally instead`
+        ).toBe(false);
+      }
     }
   );
 

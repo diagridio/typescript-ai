@@ -6,15 +6,17 @@ name: E2E Tests (Ollama)
 #
 # ## Why this is opt-in on PRs
 #
-# The Mastra adapter is still a scaffold — the model bridge is unimplemented —
-# so there is no agent turn for a live model to complete yet. Spending ~20
-# minutes of runner time on every PR to prove that would be waste. The lane is
-# fully wired and runs nightly; on a PR it runs when you apply the
-# `e2e-ollama` label. This mirrors the opt-in-by-label phase the
-# `e2e-catalyst` lane uses in python-ai.
+# The adapter does complete real turns now, so this lane has something to prove
+# and its assertions are meaningful. It stays label-gated on PRs purely on cost:
+# installing Ollama, pulling a model and running turns takes ~20 minutes of
+# runner time, against ~2 for the rest of the PR gate. It runs unconditionally
+# nightly, and on a PR when you apply the `e2e-ollama` label. Same
+# opt-in-by-label shape as python-ai's `e2e-catalyst` lane.
 #
-# Flip the `if:` on the job to unconditional once the adapter can complete a
-# turn against a live model.
+# The cheap half of this coverage is not gated: `build.yaml` runs the bridge's
+# unit tests against a mock model on every PR, so the invariants that used to
+# need Ollama — tools not executed by Mastra, the payload unwrap, the transcript
+# shape — are checked in milliseconds without this lane.
 
 on:
   pull_request:

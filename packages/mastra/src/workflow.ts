@@ -12,10 +12,9 @@
  * activity instead of re-running the whole turn (and re-billing the LLM
  * calls).
  *
- * Registries are module-level because Dapr must be handed plain functions at
- * registration time: the orchestrator cannot close over the live Mastra
- * `Agent` (it would not survive replay), so the runner registers the agent's
- * model and tools here by name and the activities look them up.
+ * Activities receive their invokers as arguments, and the runner binds its own
+ * via closures at registration time — see {@link ToolInvokers}. Nothing about an
+ * agent lives at module scope, so two runners in one process cannot interfere.
  *
  * The activity bodies delegate to `./bridge.ts`, which drives Mastra one step at
  * a time so that tool execution stays inside checkpointed activities rather than
@@ -41,19 +40,74 @@ import {
 } from './models';
 
 /**
- * How many times a failing tool activity is attempted, in total.
+ * How many times a failing activity is attempted, in total.
+ *
+ * Governs both the model call and tool calls. It was `TOOL_MAX_ATTEMPTS` when
+ * only tools were retried; once the model call was retried too, that name made
+ * the "model call failed after 3 attempts" message read as though it were
+ * quoting the wrong constant.
  *
  * Stands in for a Dapr activity `RetryPolicy`, which the JS SDK does not expose.
- * See the retry loop in {@link agentWorkflow}.
+ * See {@link callActivityWithRetry}.
  */
-export const TOOL_MAX_ATTEMPTS = 3;
+export const ACTIVITY_MAX_ATTEMPTS = 3;
 
 /** First backoff delay; doubles per attempt. */
-export const TOOL_RETRY_BASE_DELAY_MS = 500;
+export const ACTIVITY_RETRY_BASE_DELAY_MS = 500;
 
-/** Activity names, also the registration names on the Dapr runtime. */
+/**
+ * Longest tool result kept in the transcript, in characters.
+ *
+ * A tool result is not paid for once. It stays in `messages`, which is resent to
+ * the model on every subsequent iteration *and* embedded in the checkpointed
+ * activity input each time — so one oversized payload early in a turn is billed
+ * and stored repeatedly for the rest of it. Truncating bounds both curves at the
+ * one place they share.
+ *
+ * Generous enough that ordinary tool output passes untouched.
+ */
+export const MAX_TOOL_RESULT_CHARS = 16_000;
+
+/** Truncate an oversized tool result, saying so in-band so the model knows. */
+function capToolResult(content: string): string {
+  if (content.length <= MAX_TOOL_RESULT_CHARS) {
+    return content;
+  }
+  const dropped = content.length - MAX_TOOL_RESULT_CHARS;
+  return (
+    content.slice(0, MAX_TOOL_RESULT_CHARS) +
+    `\n…[truncated ${dropped} characters of tool output]`
+  );
+}
+
+/**
+ * Base activity names.
+ *
+ * Registered — and called — with the agent name appended, so each runner owns
+ * its own pair. See {@link activityNamesFor}.
+ */
 export const ACTIVITY_INVOKE_MODEL = 'diagrid.mastra.invokeModel';
 export const ACTIVITY_INVOKE_TOOL = 'diagrid.mastra.invokeTool';
+
+/**
+ * The activity names a given agent registers and calls.
+ *
+ * Scoping matters because two runners in one process share a Dapr sidecar and
+ * each opens its own worker stream. Registered under identical literal names,
+ * either connection can service either runner's work items — so runner B's
+ * tools could answer runner A's turn, and the result would be checkpointed as
+ * authoritative. The workflow name was already per-agent; this closes the same
+ * hole for activities.
+ */
+export function activityNamesFor(agentName: string): {
+  model: string;
+  tool: string;
+} {
+  return {
+    model: `${ACTIVITY_INVOKE_MODEL}.${agentName}`,
+    tool: `${ACTIVITY_INVOKE_TOOL}.${agentName}`,
+  };
+}
 
 /**
  * A model invoker: everything the `invokeModel` activity needs in order to
@@ -68,41 +122,22 @@ export type ToolInvoker = (
   input: ReturnType<typeof invokeToolInputSchema.parse>
 ) => Promise<InvokeToolOutput>;
 
-interface Registries {
-  modelInvoker: ModelInvoker | undefined;
-  toolInvokers: Map<string, ToolInvoker>;
-}
-
-const registries: Registries = {
-  modelInvoker: undefined,
-  toolInvokers: new Map(),
-};
-
-/** Register the function the `invokeModel` activity delegates to. */
-export function registerModelInvoker(invoker: ModelInvoker): void {
-  registries.modelInvoker = invoker;
-}
-
-/** Register one tool executor under the name the model will call it by. */
-export function registerToolInvoker(name: string, invoker: ToolInvoker): void {
-  registries.toolInvokers.set(name, invoker);
-}
-
-/** Names of every registered tool, in registration order. */
-export function registeredToolNames(): string[] {
-  return [...registries.toolInvokers.keys()];
-}
-
 /**
- * Drop every registration.
+ * The tool invokers an activity needs, keyed by the `tools` record key.
  *
- * Exported for tests: the registries are module-level, so a suite that
- * registers invokers has to reset them or it leaks into the next test.
+ * Passed in per call rather than held in a module global. An earlier version
+ * kept `registries` at module scope, which meant two runners in one process
+ * clobbered each other: starting runner B wiped runner A's invokers while A's
+ * runtime was still serving, so A's next model activity used B's agent — and the
+ * answer was checkpointed as authoritative. `shutdown()` did the same to a
+ * still-running peer, on the normal path rather than on misuse.
+ *
+ * The global was justified by "the orchestrator cannot close over the live
+ * Agent". True — but only the *orchestrator* is replayed. Activities are
+ * invoked, not replayed, and `registerActivityWithName` accepts a closure, so
+ * the runner binds its own invokers there and nothing is shared.
  */
-export function clearRegistries(): void {
-  registries.modelInvoker = undefined;
-  registries.toolInvokers = new Map();
-}
+export type ToolInvokers = ReadonlyMap<string, ToolInvoker>;
 
 /**
  * Activity: one model call.
@@ -112,18 +147,10 @@ export function clearRegistries(): void {
  */
 export async function invokeModelActivity(
   _ctx: WorkflowActivityContext,
-  rawInput: unknown
+  rawInput: unknown,
+  invoker: ModelInvoker
 ): Promise<InvokeModelOutput> {
   const input = invokeModelInputSchema.parse(rawInput);
-  const invoker = registries.modelInvoker;
-
-  if (!invoker) {
-    throw new Error(
-      `No model invoker registered — ${ACTIVITY_INVOKE_MODEL} cannot run. ` +
-        'DaprWorkflowAgentRunner.start() is responsible for registering one.'
-    );
-  }
-
   return invokeModelOutputSchema.parse(await invoker(input));
 }
 
@@ -142,10 +169,11 @@ export async function invokeModelActivity(
  */
 export async function invokeToolActivity(
   _ctx: WorkflowActivityContext,
-  rawInput: unknown
+  rawInput: unknown,
+  invokers: ToolInvokers
 ): Promise<InvokeToolOutput> {
   const input = invokeToolInputSchema.parse(rawInput);
-  const invoker = registries.toolInvokers.get(input.toolName);
+  const invoker = invokers.get(input.toolName);
 
   if (!invoker) {
     return invokeToolOutputSchema.parse({
@@ -156,6 +184,53 @@ export async function invokeToolActivity(
   }
 
   return invokeToolOutputSchema.parse(await invoker(input));
+}
+
+/**
+ * Call an activity, retrying transient failures with durable backoff.
+ *
+ * A delegated generator (`yield*`), so every activity call and every backoff
+ * timer is yielded from the orchestrator itself and replay ordering stays
+ * deterministic.
+ *
+ * This stands in for a Dapr activity `RetryPolicy`, which the JS SDK does not
+ * have: neither `@dapr/dapr@3.18` nor `@dapr/durabletask-js@1.0` accepts one —
+ * `callActivity(activity, input)` is the whole signature. (Python's
+ * `dapr-ext-workflow` does.) Durability is unaffected: attempts and timers are
+ * checkpointed workflow actions, so a process killed between attempt 2 and 3
+ * resumes at attempt 3. The delay comes from `getCurrentUtcDateTime()`, which is
+ * replay-stable; `Date.now()` here would corrupt replay.
+ *
+ * Callers parse the result *outside* the retry region on purpose. A schema
+ * mismatch — the rolling-deploy case the schemas exist for — is deterministic,
+ * so retrying it only burns two backoff timers before handing the model a
+ * serialized ZodError.
+ *
+ * TODO(mastra-adapter): delete this when the JS SDK gains a native RetryPolicy.
+ */
+function* callActivityWithRetry(
+  ctx: WorkflowContext,
+  activity: string,
+  activityInput: unknown
+): Generator<unknown, { result?: unknown; failure?: string }, unknown> {
+  let lastFailure: string | undefined;
+
+  for (let attempt = 1; attempt <= ACTIVITY_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return { result: yield ctx.callActivity(activity, activityInput) };
+    } catch (error) {
+      lastFailure = error instanceof Error ? error.message : String(error);
+
+      if (attempt < ACTIVITY_MAX_ATTEMPTS) {
+        const delayMs = ACTIVITY_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+        yield ctx.createTimer(
+          new Date(ctx.getCurrentUtcDateTime().getTime() + delayMs)
+        );
+      }
+    }
+  }
+
+  return { failure: lastFailure ?? 'unknown error' };
 }
 
 /**
@@ -192,6 +267,16 @@ export async function* agentWorkflow(
   rawInput: unknown
 ): AsyncGenerator<unknown, AgentWorkflowOutput, unknown> {
   const input = agentWorkflowInputSchema.parse(rawInput);
+  // Absent only for an instance scheduled before activity names were scoped.
+  // The unscoped fallback is a defined failure, not a rescue: no runner
+  // registers those names any more, so the call comes back as
+  // "Activity function ... is not registered", is retried, and the turn ends
+  // FAILED with that message. That is the point — a named, loud failure
+  // beats calling `ctx.callActivity(undefined, ...)`.
+  const activities = input.activityNames ?? {
+    model: ACTIVITY_INVOKE_MODEL,
+    tool: ACTIVITY_INVOKE_TOOL,
+  };
 
   const messages: Message[] = [
     ...input.messages,
@@ -201,15 +286,30 @@ export async function* agentWorkflow(
   let iteration = 0;
 
   while (iteration < input.maxIterations) {
-    const modelOutput = invokeModelOutputSchema.parse(
-      yield ctx.callActivity(ACTIVITY_INVOKE_MODEL, {
-        messages,
-        toolNames: registeredToolNames(),
-        iteration,
-        threadId: input.threadId,
-      })
-    );
+    // Retried like the tool call below. Without this, a single 429 or dropped
+    // socket failed the instance outright and discarded the entire transcript,
+    // including iterations whose model calls were already paid for.
+    const modelAttempt = yield* callActivityWithRetry(ctx, activities.model, {
+      messages,
+      iteration,
+      threadId: input.threadId,
+    });
     iteration += 1;
+
+    if (modelAttempt.failure !== undefined) {
+      // Retries exhausted. Return FAILED with the transcript intact, so the
+      // caller keeps the partial turn instead of losing it with the instance.
+      return {
+        text: '',
+        messages,
+        iterations: iteration,
+        status: WorkflowStatus.FAILED,
+        error: `model call failed after ${ACTIVITY_MAX_ATTEMPTS} attempts: ${modelAttempt.failure}`,
+      };
+    }
+
+    // Parsed outside the retry region: a schema mismatch is deterministic.
+    const modelOutput = invokeModelOutputSchema.parse(modelAttempt.result);
 
     if (modelOutput.error) {
       return {
@@ -247,60 +347,34 @@ export async function* agentWorkflow(
         threadId: input.threadId,
       };
 
-      let toolOutput: InvokeToolOutput | undefined;
-      let lastFailure: string | undefined;
-
       // Retry a failed tool in place, without involving the model.
-      //
-      // This is what a Dapr `RetryPolicy` on the activity would do, done in the
-      // orchestrator because the JS SDK has no such policy: neither
-      // `@dapr/dapr@3.18` nor `@dapr/durabletask-js@1.0` accepts one —
-      // `callActivity(activity, input)` is the whole signature. (The Python
-      // `dapr-ext-workflow` does have `RetryPolicy`.)
-      //
-      // Doing it here is not a downgrade in durability. Every attempt and every
-      // backoff timer is a checkpointed workflow action, so a process killed
-      // between attempt 2 and 3 resumes at attempt 3 rather than starting over.
-      // The clock comes from `getCurrentUtcDateTime()`, which is replay-stable —
-      // `Date.now()` here would be non-deterministic and corrupt replay.
-      //
-      // TODO(mastra-adapter): switch to a native activity RetryPolicy when the
-      // JS SDK gains one, and delete this loop.
-      for (let attempt = 1; attempt <= TOOL_MAX_ATTEMPTS; attempt += 1) {
-        try {
-          toolOutput = invokeToolOutputSchema.parse(
-            yield ctx.callActivity(ACTIVITY_INVOKE_TOOL, activityInput)
-          );
-          lastFailure = undefined;
-          break;
-        } catch (error) {
-          lastFailure = error instanceof Error ? error.message : String(error);
+      const toolAttempt = yield* callActivityWithRetry(
+        ctx,
+        activities.tool,
+        activityInput
+      );
 
-          if (attempt < TOOL_MAX_ATTEMPTS) {
-            const delayMs = TOOL_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
-            yield ctx.createTimer(
-              new Date(ctx.getCurrentUtcDateTime().getTime() + delayMs)
-            );
-          }
-        }
-      }
-
-      if (toolOutput === undefined) {
+      if (toolAttempt.failure !== undefined) {
         // Retries exhausted. Report it to the model as a tool error rather than
         // failing the turn: a tool that is down is something the agent may be
         // able to work around or explain, and losing the whole conversation is
         // strictly worse.
         messages.push({
           role: 'tool',
-          content: `tool failed after ${TOOL_MAX_ATTEMPTS} attempts: ${lastFailure ?? 'unknown error'}`,
+          content: `tool failed after ${ACTIVITY_MAX_ATTEMPTS} attempts: ${toolAttempt.failure}`,
           toolCallId: call.id,
         });
         continue;
       }
 
+      // Parsed outside the retry region: a schema mismatch between the
+      // orchestrator and a differently-versioned activity worker is
+      // deterministic, so retrying it only wastes two backoff timers.
+      const toolOutput = invokeToolOutputSchema.parse(toolAttempt.result);
+
       messages.push({
         role: 'tool',
-        content: toolOutput.error ?? toolOutput.result,
+        content: capToolResult(toolOutput.error ?? toolOutput.result),
         toolCallId: toolOutput.toolCallId,
       });
     }

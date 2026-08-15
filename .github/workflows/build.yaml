@@ -91,3 +91,17 @@ jobs:
 
       - name: Run unit tests
         run: pnpm test:unit
+
+      # Packaging correctness, which no test can see: the exports map decides
+      # which declaration file each consumer resolves, and getting it wrong is
+      # only discoverable after publishing. An earlier version put `types` above
+      # `import`/`require`, so the shipped .d.cts was never used and CJS
+      # consumers on `node16` got TS1479.
+      - name: Check published types resolve correctly
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
+        # Pinned, not @latest: this runs on every PR, and an unpinned fetch means
+        # the gate's behaviour can change without a commit. Dependabot bumps it
+        # like any other pinned dependency.
+        run: |
+          npx --yes @arethetypeswrong/cli@0.18.5 --pack ./packages/core --format table
+          npx --yes @arethetypeswrong/cli@0.18.5 --pack ./packages/mastra --format table

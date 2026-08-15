@@ -120,7 +120,6 @@ describe.skipIf(!OLLAMA_ENDPOINT)('Mastra adapter e2e (Ollama)', () => {
 
     const output = await createModelInvoker(realAgent)({
       messages: [{ role: 'user', content: 'Say hello in one word.' }],
-      toolNames: [],
       iteration: 0,
       threadId: 'e2e-thread',
     });

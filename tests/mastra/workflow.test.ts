@@ -11,21 +11,20 @@
  * matters because those are exactly the paths a live e2e run rarely reaches.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { WorkflowContext } from '@diagrid/agent-core';
 import {
   ACTIVITY_INVOKE_MODEL,
   ACTIVITY_INVOKE_TOOL,
   agentWorkflow,
-  clearRegistries,
   invokeModelActivity,
   invokeToolActivity,
-  registeredToolNames,
-  registerModelInvoker,
-  registerToolInvoker,
   WorkflowStatus,
   type AgentWorkflowOutput,
+  MAX_TOOL_RESULT_CHARS,
+  type InvokeToolInput,
+  type ToolInvoker,
 } from '@diagrid/agent-mastra';
 
 interface ActivityCall {
@@ -107,10 +106,6 @@ const assistantToolCall = (id: string, name: string, args: string) => ({
   requiresToolCalls: true,
 });
 
-afterEach(() => {
-  clearRegistries();
-});
-
 describe('agentWorkflow', () => {
   it('completes on the first turn when the model needs no tools', async () => {
     const { output, calls } = await runWorkflow(
@@ -184,7 +179,11 @@ describe('agentWorkflow', () => {
     expect(output.messages.at(-2)?.content).toBe('query is required');
   });
 
-  it('fails the workflow when the model call itself errors', async () => {
+  it('fails the workflow when a ModelInvoker reports .error', async () => {
+    // Contract test, not a reproduction: the shipped bridge never sets `.error`
+    // — it throws, which is the retry path above. `.error` is the escape hatch
+    // for a custom invoker installed via `runner.setModelInvoker()` that wants
+    // to end the turn without a retry, so the orchestrator has to honour it.
     const { output } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
       { message: { role: 'assistant', content: '' }, error: 'rate limited' },
     ]);
@@ -244,81 +243,219 @@ describe('agentWorkflow', () => {
 });
 
 describe('invokeModelActivity', () => {
-  it('delegates to the registered invoker', async () => {
-    registerModelInvoker(() =>
-      Promise.resolve({
-        message: { role: 'assistant' as const, content: 'from invoker' },
-        requiresToolCalls: false,
-      })
-    );
-
-    const output = await invokeModelActivity({} as never, {
-      messages: [{ role: 'user', content: 'hi' }],
-      iteration: 0,
-      threadId: 't1',
-    });
-
-    expect(output.message.content).toBe('from invoker');
-  });
-
-  it('fails loudly when nothing is registered', async () => {
-    await expect(
-      invokeModelActivity({} as never, {
-        messages: [],
+  it('delegates to the invoker it is given', async () => {
+    const output = await invokeModelActivity(
+      {} as never,
+      {
+        messages: [{ role: 'user', content: 'hi' }],
         iteration: 0,
         threadId: 't1',
-      })
-    ).rejects.toThrow(/No model invoker registered/);
+      },
+      () =>
+        Promise.resolve({
+          message: { role: 'assistant' as const, content: 'from invoker' },
+          requiresToolCalls: false,
+        })
+    );
+
+    expect(output.message.content).toBe('from invoker');
   });
 });
 
 describe('invokeToolActivity', () => {
-  it('delegates to the invoker registered under the tool name', async () => {
-    registerToolInvoker('searchDocs', (input) =>
-      Promise.resolve({ toolCallId: input.toolCallId, result: '{"hits":1}' })
-    );
+  const invokers = new Map<string, ToolInvoker>([
+    [
+      'searchDocs',
+      (input: InvokeToolInput) =>
+        Promise.resolve({ toolCallId: input.toolCallId, result: '{"hits":1}' }),
+    ],
+  ]);
 
-    const output = await invokeToolActivity({} as never, {
-      toolCallId: 'c1',
-      toolName: 'searchDocs',
-      args: '{}',
-      threadId: 't1',
-    });
+  it('delegates to the invoker registered under the tool name', async () => {
+    const output = await invokeToolActivity(
+      {} as never,
+      { toolCallId: 'c1', toolName: 'searchDocs', args: '{}', threadId: 't1' },
+      invokers
+    );
 
     expect(output).toEqual({ toolCallId: 'c1', result: '{"hits":1}' });
   });
 
   it('reports an unknown tool as a tool error, not an activity failure', async () => {
-    const output = await invokeToolActivity({} as never, {
-      toolCallId: 'c1',
-      toolName: 'ghost',
-      args: '{}',
-      threadId: 't1',
-    });
+    const output = await invokeToolActivity(
+      {} as never,
+      { toolCallId: 'c1', toolName: 'ghost', args: '{}', threadId: 't1' },
+      invokers
+    );
 
     expect(output.error).toBe('Unknown tool "ghost"');
   });
+
+  it('keeps two invoker maps independent', async () => {
+    // The regression the module-level registry caused: a second runner's
+    // registration replaced the first's, so agent B answered agent A's turns.
+    const other = new Map<string, ToolInvoker>([
+      [
+        'searchDocs',
+        (input: InvokeToolInput) =>
+          Promise.resolve({ toolCallId: input.toolCallId, result: 'B' }),
+      ],
+    ]);
+    const call = {
+      toolCallId: 'c1',
+      toolName: 'searchDocs',
+      args: '{}',
+      threadId: 't1',
+    };
+
+    expect((await invokeToolActivity({} as never, call, invokers)).result).toBe(
+      '{"hits":1}'
+    );
+    expect((await invokeToolActivity({} as never, call, other)).result).toBe(
+      'B'
+    );
+  });
 });
 
-describe('registries', () => {
-  it('reports registered tool names in registration order', () => {
-    registerToolInvoker('a', () =>
-      Promise.resolve({ toolCallId: '', result: '' })
-    );
-    registerToolInvoker('b', () =>
-      Promise.resolve({ toolCallId: '', result: '' })
+describe('what the model activity is sent', () => {
+  it('sends exactly the fields the activity schema declares', () => {
+    // An exact match, not toMatchObject. Every field here is serialized into
+    // workflow history on each iteration and kept for the life of the instance,
+    // so a field the activity does not read is not free — `toolNames` was
+    // carried as a permanently-empty array until a review noticed, and a subset
+    // assertion could never have caught it.
+    return runWorkflow({ prompt: 'go', threadId: 't1' }, [
+      assistantText('done'),
+    ]).then(({ calls }) => {
+      expect(Object.keys(calls[0]?.input as object).sort()).toEqual([
+        'iteration',
+        'messages',
+        'threadId',
+      ]);
+    });
+  });
+});
+
+describe('the orchestrator is an async generator', () => {
+  it('exposes Symbol.asyncIterator, which is what Dapr dispatches on', () => {
+    // This assertion exists because every other test in this file passes with a
+    // sync `function*` — verified by making the change and re-running. The
+    // driver below advances the generator with `.next()` under `await`, and
+    // `await` on a non-thenable resolves immediately, so it cannot tell the two
+    // apart. Dapr can, and treats a sync generator as a completed workflow that
+    // ran no activities:
+    //
+    //   const isAsyncGenerator = typeof result?.[Symbol.asyncIterator] === 'function';
+    //   if (isAsyncGenerator) { await ctx.run(result); }
+    //   else { ctx.setComplete(result, ORCHESTRATION_STATUS_COMPLETED); }
+    //
+    // (@dapr/durabletask-js, worker/orchestration-executor.js)
+    const generator = agentWorkflow({} as WorkflowContext, {
+      prompt: 'go',
+      threadId: 't1',
+    });
+
+    expect(
+      typeof generator[Symbol.asyncIterator],
+      'agentWorkflow is not an async generator — Dapr will mark the workflow ' +
+        'COMPLETED without running a single activity. It must be `async function*`.'
+    ).toBe('function');
+  });
+});
+
+describe('activity name scoping', () => {
+  it('calls the activity names carried in its own input', async () => {
+    // Two runners in one process share a sidecar and register on separate
+    // worker streams. Under identical literal names either stream could service
+    // the other's work items, answering runner A's turn with runner B's tools.
+    const { calls } = await runWorkflow(
+      {
+        prompt: 'go',
+        threadId: 't1',
+        activityNames: {
+          model: 'diagrid.mastra.invokeModel.agent-a',
+          tool: 'diagrid.mastra.invokeTool.agent-a',
+        },
+      },
+      [
+        assistantToolCall('c1', 'searchDocs', '{}'),
+        { toolCallId: 'c1', result: 'x' },
+        assistantText('done'),
+      ]
     );
 
-    expect(registeredToolNames()).toEqual(['a', 'b']);
+    expect(calls.map((c) => c.name)).toEqual([
+      'diagrid.mastra.invokeModel.agent-a',
+      'diagrid.mastra.invokeTool.agent-a',
+      'diagrid.mastra.invokeModel.agent-a',
+    ]);
   });
 
-  it('clears every registration', () => {
-    registerToolInvoker('a', () =>
-      Promise.resolve({ toolCallId: '', result: '' })
-    );
-    clearRegistries();
+  it('falls back to unscoped names for a workflow scheduled before scoping', async () => {
+    // Replay safety: an in-flight instance scheduled by an older version has no
+    // activityNames in its checkpointed input.
+    const { calls } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
+      assistantText('done'),
+    ]);
 
-    expect(registeredToolNames()).toEqual([]);
+    expect(calls[0]?.name).toBe(ACTIVITY_INVOKE_MODEL);
+  });
+});
+
+describe('oversized tool results', () => {
+  it('truncates a result that would be resent on every later iteration', async () => {
+    const huge = 'x'.repeat(MAX_TOOL_RESULT_CHARS + 5_000);
+    const { output } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
+      assistantToolCall('c1', 'searchDocs', '{}'),
+      { toolCallId: 'c1', result: huge },
+      assistantText('done'),
+    ]);
+
+    const toolMessage = output.messages.find((m) => m.role === 'tool');
+    expect(toolMessage?.content.length).toBeLessThan(huge.length);
+    expect(toolMessage?.content).toContain('truncated 5000 characters');
+  });
+
+  it('leaves ordinary tool output untouched', async () => {
+    const { output } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
+      assistantToolCall('c1', 'searchDocs', '{}'),
+      { toolCallId: 'c1', result: '{"hits":2}' },
+      assistantText('done'),
+    ]);
+
+    expect(output.messages.find((m) => m.role === 'tool')?.content).toBe(
+      '{"hits":2}'
+    );
+  });
+});
+
+describe('model call retry', () => {
+  it('retries the model activity rather than failing the turn', async () => {
+    // Before this, one 429 failed the instance outright and discarded every
+    // iteration already paid for.
+    const { output, calls } = await runWorkflow(
+      { prompt: 'go', threadId: 't1' },
+      [new Error('429 rate limited'), assistantText('recovered')]
+    );
+
+    expect(output.status).toBe(WorkflowStatus.COMPLETED);
+    expect(output.text).toBe('recovered');
+    expect(calls.filter((c) => c.name === ACTIVITY_INVOKE_MODEL)).toHaveLength(
+      2
+    );
+  });
+
+  it('keeps the transcript when model retries are exhausted', async () => {
+    const { output } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
+      new Error('429'),
+      new Error('429'),
+      new Error('429'),
+    ]);
+
+    expect(output.status).toBe(WorkflowStatus.FAILED);
+    expect(output.error).toMatch(/model call failed after 3 attempts/);
+    // The partial turn survives rather than being lost with the instance.
+    expect(output.messages.length).toBeGreaterThan(0);
   });
 });
 

@@ -16,7 +16,16 @@
  *    its own framework's peer — which is exactly the invariant
  *    `tests/guards/cross-framework-imports.test.ts` asserts.
  *
- * These are type-only re-exports: nothing here adds to the runtime bundle.
+ * These are type-only re-exports: erased at compile time, so nothing here pulls
+ * `@dapr/dapr` into the runtime graph.
+ *
+ * The one value that used to live here — the `WorkflowRuntimeStatus` enum — has
+ * moved to {@link ../status}, declared locally. Re-exporting it from
+ * `@dapr/dapr` made that a *static* import of this package: a bare
+ * `require('@diagrid/agent-mastra')` loaded ~136 `@dapr/dapr` modules and ~65
+ * from `@grpc/grpc-js` before any adapter code ran, which also meant the
+ * `await import('@dapr/dapr')` sites in `runner.ts`, `store.ts` and `pubsub.ts`
+ * deferred nothing — the graph was already resident.
  */
 
 export type {
@@ -29,11 +38,3 @@ export type {
   WorkflowRuntime,
   WorkflowState,
 } from '@dapr/dapr';
-
-/**
- * Re-exported as a *value*, unlike everything above: `WorkflowRuntimeStatus` is
- * an enum, and adapters need to compare against its members (`=== COMPLETED`) to
- * tell a completed workflow from a failed one. A type-only re-export compiles
- * fine right up until someone tries to use it.
- */
-export { WorkflowRuntimeStatus } from '@dapr/dapr';

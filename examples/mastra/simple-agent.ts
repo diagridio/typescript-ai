@@ -23,6 +23,12 @@
  * Expect two iterations for the prompt below: one model call that asks for the
  * `calculate` and `getWeather` tools, then a second that turns their results into
  * an answer. Each of those steps is a separate checkpointed activity.
+ *
+ * Two is what every observed run produces, but it is the model's decision, not
+ * a guarantee — a model that asks for the tools one at a time would take three.
+ * That is why CI asserts the count is above zero rather than exactly two: zero
+ * is the failure that matters, because it means the orchestrator never entered
+ * the loop.
  */
 
 import { Agent } from '@mastra/core/agent';

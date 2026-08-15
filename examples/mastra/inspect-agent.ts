@@ -4,9 +4,10 @@
 /**
  * Example: inspect what Diagrid publishes about a Mastra agent.
  *
- * This is the one example that runs green today — the adapter's model and tool
- * bridges are still stubs (see the package README), but naming, registry
- * metadata and workflow registration are real.
+ * This is the only example that needs neither a model nor a sidecar, which
+ * makes it the first thing to run when something looks misconfigured: it
+ * answers "what does Diagrid think this agent is?" without executing a turn.
+ * The other three run real durable turns — see `./README.md`.
  *
  * It prints the canonical workflow name and the full registry record: the
  * framework, the resolved model and provider, and the agent's tools. That

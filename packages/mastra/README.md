@@ -14,17 +14,34 @@ Working, and verified by running it rather than by inspection — against a loca
 `dapr run` sidecar and against Diagrid Catalyst, with Ollama (`qwen2.5:7b`) as the
 model.
 
-| Area                                        | State                                                           |
-| ------------------------------------------- | --------------------------------------------------------------- |
-| Runner lifecycle, naming, registry metadata | ✅                                                              |
-| Durable agent loop (`agentWorkflow`)        | ✅ model call → tool activities → repeat                        |
-| Model bridge                                | ✅ one step per iteration via `clientTools`                     |
-| Tool bridge                                 | ✅ one checkpointed activity per tool call                      |
-| Checkpoint persistence                      | ✅                                                              |
-| Crash recovery                              | ✅ tool ran exactly once across a mid-turn kill                 |
-| Dapr activity `RetryPolicy`                 | ❌ `TODO(mastra-adapter)` — tool errors go to the model instead |
-| Component discovery for registry metadata   | ❌ `TODO(mastra-adapter)`                                       |
-| Tools needing `RequestContext` / workspace  | ❌ `TODO(mastra-adapter)`                                       |
+| Area                                       | State                                                                |
+| ------------------------------------------ | -------------------------------------------------------------------- |
+| Runner lifecycle and workflow naming       | ✅                                                                   |
+| Durable agent loop (`agentWorkflow`)       | ✅ model call → tool activities → repeat                             |
+| Model bridge                               | ✅ one step per iteration via `clientTools`                          |
+| Tool bridge                                | ✅ one checkpointed activity per tool call                           |
+| Crash recovery                             | ✅ tool ran exactly once across a mid-turn kill                      |
+| Activity retry (model and tool)            | ✅ in-orchestrator, 3 attempts with durable backoff                  |
+| Registry metadata (`getMetadata()`)        | ⚠️ the record is correct, but nothing publishes it — see below       |
+| Checkpoint persistence                     | ⚠️ implemented and tested, but the runner never calls it — see below |
+| Native Dapr activity `RetryPolicy`         | ❌ not in the JS SDK; the orchestrator retries instead               |
+| Component discovery for registry metadata  | ❌ `TODO(mastra-adapter)`                                            |
+| Tools needing `RequestContext` / workspace | ❌ `TODO(mastra-adapter)`                                            |
+
+### The two ⚠️ rows
+
+Both are built and unit-tested but have no caller — a working part is not the
+same thing as a working feature:
+
+- **Checkpoint persistence.** `DaprMastraCheckpointer.save()/load()/list()` have
+  no callers outside their tests. The runner constructs one and exposes it as a
+  public field; nothing writes to it, so `load()` always returns `undefined` in
+  practice. Continuing a thread today means passing prior `messages` into
+  `invoke()` yourself.
+- **Registry metadata.** `getMetadata()` returns a correct record — the examples
+  print it — but nothing publishes it to a state store or agent registry. Note it
+  reports `memory.shortTerm = { type: 'DaprMastraCheckpointer' }`, which is
+  accurate about intent and ahead of the wiring.
 
 `grep -rn 'TODO(mastra-adapter)' src` lists what is left. `tests/e2e/` runs the
 examples under a real sidecar in CI, so these claims stay honest.
@@ -41,7 +58,7 @@ your tree.
 
 - Node.js ≥ 22.13
 - `@mastra/core` ≥ 1.50 < 2
-- `zod` ^3.25 or ^4
+- `zod` ^4
 
 ## Usage
 

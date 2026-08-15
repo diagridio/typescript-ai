@@ -30,6 +30,7 @@
     "prepare": "husky"
   },
   "devDependencies": {
+    "@dapr/dapr": "3.18.0",
     "@eslint/js": "10.0.1",
     "@grpc/grpc-js": "1.14.4",
     "@mastra/core": "1.57.0",

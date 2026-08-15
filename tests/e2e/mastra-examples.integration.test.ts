@@ -80,6 +80,25 @@ const HAS_DAPR = (() => {
 /** The durable path needs both a sidecar and a model to be exercisable. */
 const CAN_RUN_WORKFLOWS = HAS_DAPR && Boolean(OLLAMA_ENDPOINT);
 
+/**
+ * Refuse to skip silently when CI says this lane must run.
+ *
+ * The `durable execution` block below is the only automated check anywhere that
+ * a workflow completes a turn — including the `Iterations: 0` guard for the sync
+ * generator bug. It is gated on `describe.runIf`, so if `dapr --version` fails
+ * for any reason (PATH, the install script changing shape) the whole block
+ * vanishes and the job still reports green. That is precisely the
+ * false-confidence failure `DIAGRID_E2E_REQUIRED` exists to prevent, and
+ * `mastra-ollama.integration.test.ts` already honours it — this file did not.
+ */
+if (process.env['DIAGRID_E2E_REQUIRED'] === '1' && !CAN_RUN_WORKFLOWS) {
+  throw new Error(
+    'DIAGRID_E2E_REQUIRED=1 but the durable-execution block would have ' +
+      `skipped (dapr CLI available: ${HAS_DAPR}, OLLAMA_ENDPOINT set: ` +
+      `${Boolean(OLLAMA_ENDPOINT)}). Check the Dapr and Ollama setup steps.`
+  );
+}
+
 interface RunResult {
   readonly code: number;
   readonly stdout: string;

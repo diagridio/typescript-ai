@@ -4,26 +4,20 @@
 /**
  * Example: a failing tool recovered from without losing the turn.
  *
- * What this actually demonstrates — verified by running it, which is why the
- * description is narrower than you might expect:
+ * The tool throws twice. Both failures are retried **in place** as durable
+ * activities with exponential backoff, so the model is never told about them and
+ * never re-invoked: the retries cost no LLM calls. The third attempt succeeds and
+ * the turn completes.
  *
- * The tool throws twice. Each failure is reported back to the *model* as a tool
- * error, and the model corrects and calls again; the third attempt succeeds and
- * it answers. Crucially, every completed step before each failure — the earlier
- * model calls and their tool results — was checkpointed as a Dapr activity, so
- * none of it is recomputed and none of those LLM calls is paid for twice.
+ * Failures split by cause, which is what makes that safe (see
+ * `packages/mastra/src/bridge.ts`): a thrown tool body is retried, while
+ * arguments the tool's schema rejects go straight back to the model, since
+ * retrying cannot fix what the model got wrong.
  *
- * What it does **not** demonstrate is Dapr retrying the activity itself. The
- * tool bridge deliberately converts a thrown tool error into a tool *result*
- * carrying `error`, because a bad argument is information the model can act on,
- * not an infrastructure failure. The cost is that a genuinely transient failure
- * (rate limit, dropped connection) also goes to the model instead of being
- * retried in place.
- *
- * TODO(mastra-adapter): schedule activities with an explicit Dapr `RetryPolicy`
- * and let infrastructure errors propagate as activity failures, so transient
- * faults are retried without involving the model at all. Requires distinguishing
- * tool-logic errors from transport errors — see `packages/mastra/src/bridge.ts`.
+ * Watch `Tool attempts` against `Model calls` in the output — with two
+ * retries the tool is attempted 3 times across 2 model calls, because the model
+ * is not consulted between attempts — only to request the tool and to read its
+ * result.
  *
  * Run — local Dapr:
  *   dapr run --app-id mastra-retry --resources-path ./resources -- pnpm retry
@@ -118,10 +112,12 @@ async function main(): Promise<void> {
     console.log(`Model calls:   ${result.iterations}`);
     console.log(
       `\nThe tool failed ${FAILURES_BEFORE_SUCCESS} times and the turn still ` +
-        'completed: each failure went back to the model as a tool error, which ' +
-        'corrected and called again.\n' +
-        'Every completed step in between was a checkpointed Dapr activity, so ' +
-        'no earlier model call or tool result was recomputed.'
+        'completed. The failures were retried in place, as durable activities ' +
+        'with backoff — the model was not re-invoked for them, so the retries ' +
+        'cost no LLM calls.\n' +
+        `Compare the two counts above: ${FAILURES_BEFORE_SUCCESS + 1} tool ` +
+        'attempts against 2 model calls — one to request the tool, one to read ' +
+        'its result. The retries in between are invisible to the model.'
     );
     console.log('='.repeat(60));
   } catch (error) {
