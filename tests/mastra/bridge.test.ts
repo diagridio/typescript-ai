@@ -384,6 +384,67 @@ describe('toModelMessages', () => {
   });
 });
 
+describe('tools with no inputSchema', () => {
+  /**
+   * Capture this tool's warnings for the duration of one call.
+   *
+   * Filtered by tool name on purpose. `process.emitWarning` dispatches on a
+   * later tick, so a warning emitted by an earlier test in this file lands
+   * inside this listener's window — an unfiltered count is flaky, and was.
+   */
+  async function warningsFor(
+    toolName: string,
+    run: () => Promise<unknown>
+  ): Promise<string[]> {
+    const seen: string[] = [];
+    const listener = (warning: Error) => {
+      if (
+        warning.name === 'DiagridUnvalidatedToolArgs' &&
+        warning.message.includes(`"${toolName}"`)
+      ) {
+        seen.push(warning.message);
+      }
+    };
+    process.on('warning', listener);
+    try {
+      await run();
+      // `process.emitWarning` dispatches on the next tick.
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      process.off('warning', listener);
+    }
+    return seen;
+  }
+
+  it('warns at registration, not at the first call', async () => {
+    // The operator should learn about an unvalidated tool when the process
+    // starts, not the first time a model happens to call it — by then the
+    // arguments have already reached the body.
+    const schemaless = {
+      id: 'unvalidatedProbe',
+      description: 'no schema',
+      execute: () => Promise.resolve({ ok: true }),
+    };
+
+    const warnings = await warningsFor('unvalidatedProbe', () =>
+      createToolInvokers({ tools: { unvalidatedProbe: schemaless } })
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('unvalidated');
+  });
+
+  it('stays quiet for a tool that has a schema', async () => {
+    const { tool } = trackedTool('getWeather');
+
+    const warnings = await warningsFor('getWeather', () =>
+      createToolInvokers({ tools: { getWeather: tool } })
+    );
+
+    expect(warnings).toEqual([]);
+  });
+});
+
 describe('prototype pollution at depth', () => {
   it('strips __proto__ nested inside objects and arrays', async () => {
     // The payload is a raw JSON string on purpose, and the reason is the whole

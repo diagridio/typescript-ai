@@ -40,6 +40,8 @@ export interface DaprStateStoreOptions {
  * JSON-serializing wrapper over a Dapr state store component.
  *
  * ```ts
+ * import { DaprStateStore } from '@diagrid/agent-core';
+ *
  * const store = new DaprStateStore({ storeName: 'agent-memory' });
  * await store.save('my-key', { messages: ['hello'] });
  * const data = await store.get<{ messages: string[] }>('my-key');

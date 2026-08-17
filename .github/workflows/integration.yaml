@@ -1,8 +1,11 @@
 name: Integration Tests
 
-# Nightly and on demand only — never on a PR. These tests need a live Dapr
-# sidecar, so they are too slow and too infrastructure-dependent to gate a
-# review on. The PR gate is build.yaml.
+# Nightly and on demand only — never on a PR. These tests spawn real processes
+# and have real timeouts, so they are too slow to gate a review on. The PR gate
+# is build.yaml.
+#
+# This lane runs the integration suite's sidecar-free half. Anything needing a
+# live sidecar *and* a model lives in e2e-ollama.yaml, which provisions both.
 
 on:
   schedule:
@@ -38,23 +41,17 @@ jobs:
       - name: Build packages
         run: pnpm build
 
-      # Dapr's own runtime is containerised, so this only runs on Linux; the
-      # Windows leg still exercises the suite's non-sidecar paths, which is
-      # where path handling and process spawning differ.
-      - name: Install Dapr CLI
-        if: runner.os == 'Linux'
-        run: wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
-
-      - name: Initialize Dapr
-        if: runner.os == 'Linux'
-        run: dapr init
-
-      # No OLLAMA_ENDPOINT here on purpose: this lane has no model, so the
-      # durable-execution block skips and what runs is the no-sidecar half. The
-      # Dapr setup above still earns its place — it is what makes a *future*
-      # sidecar-only test runnable here — but the full turn is covered by
-      # e2e-ollama.yaml, which has both. Do not set DIAGRID_E2E_REQUIRED here;
-      # it would fail this lane by design.
+      # No Dapr CLI and no OLLAMA_ENDPOINT here, deliberately.
+      #
+      # This lane used to install the CLI and run `dapr init`, which bought
+      # nothing: without a model the durable-execution block skips, and what
+      # remains is the no-sidecar half — scripts spawned *without* `dapr run`,
+      # which needs no sidecar at all. So the setup cost was paid nightly for
+      # coverage that never ran. The full turn is covered by e2e-ollama.yaml,
+      # which has both a sidecar and a model.
+      #
+      # Do not set DIAGRID_E2E_REQUIRED here; it exists to fail a lane that was
+      # *supposed* to run the durable block, and this one is not.
       - name: Run integration tests
         run: pnpm test:integration
 
@@ -64,14 +61,6 @@ jobs:
         with:
           name: integration-failure-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            /tmp/dapr-*.log
             coverage/
           if-no-files-found: ignore
           retention-days: 7
-
-      - name: Cleanup
-        if: always() && runner.os == 'Linux'
-        run: |
-          # Leave the runner clean so a retry starts from zero.
-          dapr uninstall --all 2>/dev/null || true
-          docker ps -aq --filter "name=dapr_" | xargs -r docker rm -f 2>/dev/null || true

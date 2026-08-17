@@ -10,6 +10,7 @@
  * import { DaprWorkflowAgentRunner } from '@diagrid/agent-mastra';
  *
  * const agent = new Agent({
+ *   id: 'support-agent',
  *   name: 'support-agent',
  *   instructions: 'You help customers with billing questions.',
  *   model: openai('gpt-4o-mini'),

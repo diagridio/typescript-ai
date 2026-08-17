@@ -351,6 +351,27 @@ export async function createToolInvokers(
     //
     // Invisible in every fixture here because they all use the shorthand where
     // key and id coincide.
+    if (typeof tool.inputSchema?.parse !== 'function') {
+      // Tell the operator at startup, not at the first call.
+      //
+      // `createTool` treats `inputSchema` as optional, and a tool without one
+      // receives the model's arguments with only `safeParse`'s `__proto__` /
+      // `constructor` stripping between it and untrusted text — a retrieved
+      // document or an earlier tool result can steer what lands here. That may
+      // be a deliberate choice, so this warns rather than refusing.
+      //
+      // `process.emitWarning` rather than `console.warn`: it carries a stable
+      // type an operator can filter or turn into an error
+      // (`--throw-deprecation`-style handling via `process.on('warning')`), and
+      // a library has no business writing to stdout.
+      process.emitWarning(
+        `Mastra tool "${name}" has no inputSchema, so its arguments reach the ` +
+          'tool body unvalidated. Add a Zod inputSchema to createTool() if the ' +
+          'model can be influenced by untrusted content.',
+        { type: 'DiagridUnvalidatedToolArgs', code: 'DIAGRID_TOOL_NO_SCHEMA' }
+      );
+    }
+
     invokers.set(name, async (input) => {
       // Validate first, outside the retry-able region. Bad arguments are the
       // *model's* mistake, and re-running the same call cannot fix them — so

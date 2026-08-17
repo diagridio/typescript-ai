@@ -24,6 +24,10 @@ package whose two base classes you implement.
 
 Two things to implement:
 
+<!-- typecheck: skip — a template for a future adapter, not runnable code:
+     `MY_FRAMEWORK`, `myAgentWorkflow` and `myActivity` are placeholders the
+     implementer replaces. Checked blocks live in the root and mastra READMEs. -->
+
 ```ts
 import {
   BaseAgentMapper,

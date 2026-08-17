@@ -69,3 +69,11 @@ jobs:
 
       - name: Telemetry / OTEL compat check
         run: pnpm vitest run --project unit tests/guards/telemetry-compat.test.ts
+
+      # Documented API surface, held to the same bar as the examples. A quickstart
+      # that no longer compiles is a support burden nothing else detects: the
+      # examples pass every field, so the type checker never sees the shorter call
+      # the docs advertise. Covers README fences and the JSDoc examples that ship
+      # inside `dist/index.d.ts` as editor hover text.
+      - name: Documented snippets compile
+        run: pnpm vitest run --project unit tests/guards/readme-snippets.test.ts
