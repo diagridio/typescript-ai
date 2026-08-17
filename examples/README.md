@@ -19,17 +19,18 @@ they cannot drift from the adapter API without breaking the build.
 
 Every example works on both paths, and reports which one it detected:
 
-|                 | Local Dapr                                                          | Diagrid Catalyst                                                    |
-| --------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Command         | `dapr run --app-id X --resources-path ./resources -- pnpm <script>` | `diagrid dev run --app-id X -- pnpm <script>`                       |
-| Components      | the on-disk `resources/` directory                                  | provisioned in the Catalyst project                                 |
-| Setup           | `dapr init` (needs Docker)                                          | `diagrid project create <name> --enable-agent-infrastructure --use` |
-| Component names | `agent-workflow` + `agent-memory`, declared in `resources/`         | the same names, provisioned managed — nothing to set                |
+|                 | Local Dapr                                                          | Diagrid Catalyst                                                                                            |
+| --------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Command         | `dapr run --app-id X --resources-path ./resources -- pnpm <script>` | `diagrid dev run --app-id X -- pnpm <script>`                                                               |
+| Components      | the on-disk `resources/` directory                                  | provisioned in the Catalyst project                                                                         |
+| Setup           | `dapr init` (needs Docker)                                          | `diagrid project create <name> --deploy-managed-kv --deploy-managed-pubsub --enable-managed-workflow --use` |
+| Component names | `agent-workflow` + `agent-memory`, declared in `resources/`         | the same names, provisioned managed — nothing to set                                                        |
 
 `diagrid dev run` injects `DAPR_GRPC_ENDPOINT` and `DAPR_API_TOKEN`, which
 `@dapr/dapr` reads from the environment — so the adapters need no
-Catalyst-specific code. And `--enable-agent-infrastructure` provisions components
-under the same names the adapters default to, so neither path needs configuring.
+Catalyst-specific code. And a cloud project with the managed KV store provisions
+components under the same names the adapters default to, so neither path needs
+configuring.
 
 ## Shared prerequisites
 
