@@ -4,24 +4,28 @@ name: E2E Tests (Ollama)
 # Ollama, pulls a small model, sets up Docker and the Dapr CLI, then runs the
 # integration-tagged suite.
 #
-# ## Why this is opt-in on PRs
+# ## Why this runs on every PR
 #
-# The adapter does complete real turns now, so this lane has something to prove
-# and its assertions are meaningful. It stays label-gated on PRs purely on cost:
-# installing Ollama, pulling a model and running turns takes ~20 minutes of
-# runner time, against ~2 for the rest of the PR gate. It runs unconditionally
-# nightly, and on a PR when you apply the `e2e-ollama` label. Same
-# opt-in-by-label shape as python-ai's `e2e-catalyst` lane.
+# It was label-gated while the model bridge was a stub: there was no agent turn
+# for a live model to complete, so 20 minutes of runner time proved nothing. That
+# precondition is gone — the adapter completes real turns, and this is the only
+# lane that runs one end to end.
 #
-# The cheap half of this coverage is not gated: `build.yaml` runs the bridge's
-# unit tests against a mock model on every PR, so the invariants that used to
-# need Ollama — tools not executed by Mastra, the payload unwrap, the transcript
-# shape — are checked in milliseconds without this lane.
+# It is worth the ~20 minutes against ~2 for the rest of the gate because of what
+# only this lane can see. The sync-generator bug marked workflows COMPLETED
+# without running a single activity, and neither the type checker nor the unit
+# tests could catch it: the tests drive the orchestrator directly and so bypass
+# Dapr's dispatch entirely. `mastra-examples.integration.test.ts` asserts
+# `Iterations > 0` precisely for that, and the assertion only means something
+# with a real sidecar behind it.
+#
+# `DIAGRID_E2E_REQUIRED=1` is set below so a missing model or CLI fails the job
+# rather than skipping the block and reporting green.
 
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened]
   schedule:
     - cron: "0 4 * * *" # nightly at 04:00 UTC
   workflow_dispatch:
@@ -35,9 +39,6 @@ concurrency:
 
 jobs:
   e2e-ollama:
-    if: >-
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'e2e-ollama')
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

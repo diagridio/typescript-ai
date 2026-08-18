@@ -133,9 +133,10 @@ owns the agent's execution state.
 ## Repository layout
 
 ```text
-packages/core      @diagrid/agent-core    shared runtime: base runner, agent
-                                          mapper contract, workflow naming,
-                                          state, pub/sub, telemetry
+packages/core      @diagrid/agent-core    shared runtime: the durable agent
+                                          loop, base runner, agent mapper
+                                          contract, workflow naming, state,
+                                          checkpointer, pub/sub, telemetry
 packages/mastra    @diagrid/agent-mastra  the Mastra adapter
 examples/mastra                           runnable scripts, type-checked in CI
 tests/             mirrors the source tree; `tests/guards/` holds the two
@@ -150,10 +151,18 @@ API key and no sidecar, and prints exactly what Diagrid publishes about an agent
 The repository is laid out so a second framework is a small, well-bounded
 change. Everything framework-specific lives in one package:
 
-1. `mkdir packages/<framework>` and copy `packages/mastra`'s shape: `runner.ts`
-   (public entrypoint), `workflow.ts` (Dapr workflow + activities),
-   `models.ts` (Zod I/O schemas), `state.ts` (checkpoints), `mapper.ts`
-   (`BaseAgentMapper` implementation), `version.ts`, `index.ts`, `README.md`.
+1. `mkdir packages/<framework>` and copy `packages/mastra`'s shape, which is
+   deliberately small: `bridge.ts` (drive the framework one step at a time),
+   `mapper.ts` (`BaseAgentMapper` implementation), `runner.ts` (public
+   entrypoint, mostly wiring), `state.ts` (a `DaprAgentCheckpointer` subclass
+   supplying the key prefix), `version.ts`, `index.ts`, `README.md`.
+
+   You do **not** write the durable agent loop. The orchestrator, its
+   activities, the retry behaviour and every Zod schema that crosses the
+   workflow boundary live in `@diagrid/agent-core` (`src/agent/`), because none
+   of them mention a framework. Only `bridge.ts` and `mapper.ts` are genuinely
+   framework-specific.
+
 2. Add the framework to `SupportedFrameworks` in
    `packages/core/src/types/frameworks.ts`.
 3. Add an entry to `ADAPTERS` in

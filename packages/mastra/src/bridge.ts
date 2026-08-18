@@ -47,7 +47,7 @@ import type {
   InvokeToolInput,
   InvokeToolOutput,
   Message,
-} from './models';
+} from '@diagrid/agent-core';
 import type { MastraAgentLike } from './mapper';
 
 /** A Mastra tool as `listTools()` returns it. */

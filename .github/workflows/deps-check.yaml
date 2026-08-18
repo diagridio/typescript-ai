@@ -75,5 +75,12 @@ jobs:
       # examples pass every field, so the type checker never sees the shorter call
       # the docs advertise. Covers README fences and the JSDoc examples that ship
       # inside `dist/index.d.ts` as editor hover text.
+      # Loads the real artifacts, and resolves them by package name so the
+      # `exports` map runs its actual algorithm. Everything else in the repo runs
+      # from source via tsconfig `paths`, so without this a packaging regression
+      # reaches consumers before it reaches a test.
+      - name: Built packages load and resolve
+        run: pnpm vitest run --project unit tests/guards/dist-smoke.test.ts
+
       - name: Documented snippets compile
         run: pnpm vitest run --project unit tests/guards/readme-snippets.test.ts

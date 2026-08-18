@@ -24,10 +24,10 @@
 import type {
   WorkflowActivityContext,
   WorkflowContext,
-} from '@diagrid/agent-core';
+} from '../workflow/dapr';
 
 import {
-  agentWorkflowInputSchema,
+  scheduledWorkflowInputSchema,
   invokeModelInputSchema,
   invokeModelOutputSchema,
   invokeToolInputSchema,
@@ -80,32 +80,33 @@ function capToolResult(content: string): string {
   );
 }
 
-/**
- * Base activity names.
- *
- * Registered — and called — with the agent name appended, so each runner owns
- * its own pair. See {@link activityNamesFor}.
- */
-export const ACTIVITY_INVOKE_MODEL = 'diagrid.mastra.invokeModel';
-export const ACTIVITY_INVOKE_TOOL = 'diagrid.mastra.invokeTool';
+/** The two activity kinds the loop schedules. */
+export const ACTIVITY_INVOKE_MODEL = 'invokeModel';
+export const ACTIVITY_INVOKE_TOOL = 'invokeTool';
 
 /**
  * The activity names a given agent registers and calls.
+ *
+ * Scoped by both framework and agent, mirroring {@link buildWorkflowName}'s
+ * `dapr.<framework>.<Agent>.workflow` — the same lowercasing, so the two names
+ * an operator sees for one agent agree with each other.
  *
  * Scoping matters because two runners in one process share a Dapr sidecar and
  * each opens its own worker stream. Registered under identical literal names,
  * either connection can service either runner's work items — so runner B's
  * tools could answer runner A's turn, and the result would be checkpointed as
- * authoritative. The workflow name was already per-agent; this closes the same
- * hole for activities.
+ * authoritative. There is no capability negotiation to prevent it: a worker
+ * sends a bare `Hello` and then takes any work item for the app-id. The workflow
+ * name was already per-agent; this closes the same hole for activities.
  */
-export function activityNamesFor(agentName: string): {
-  model: string;
-  tool: string;
-} {
+export function activityNamesFor(
+  framework: string,
+  agentName: string
+): { model: string; tool: string } {
+  const prefix = `diagrid.${framework.toLowerCase()}`;
   return {
-    model: `${ACTIVITY_INVOKE_MODEL}.${agentName}`,
-    tool: `${ACTIVITY_INVOKE_TOOL}.${agentName}`,
+    model: `${prefix}.${ACTIVITY_INVOKE_MODEL}.${agentName}`,
+    tool: `${prefix}.${ACTIVITY_INVOKE_TOOL}.${agentName}`,
   };
 }
 
@@ -266,17 +267,13 @@ export async function* agentWorkflow(
   ctx: WorkflowContext,
   rawInput: unknown
 ): AsyncGenerator<unknown, AgentWorkflowOutput, unknown> {
-  const input = agentWorkflowInputSchema.parse(rawInput);
-  // Absent only for an instance scheduled before activity names were scoped.
-  // The unscoped fallback is a defined failure, not a rescue: no runner
-  // registers those names any more, so the call comes back as
-  // "Activity function ... is not registered", is retried, and the turn ends
-  // FAILED with that message. That is the point — a named, loud failure
-  // beats calling `ctx.callActivity(undefined, ...)`.
-  const activities = input.activityNames ?? {
-    model: ACTIVITY_INVOKE_MODEL,
-    tool: ACTIVITY_INVOKE_TOOL,
-  };
+  const input = scheduledWorkflowInputSchema.parse(rawInput);
+  // Required by the schema, not defaulted. There used to be a fallback to
+  // unscoped literals for an instance scheduled before scoping existed, but no
+  // runner registers those names, so it only ever produced "Activity function
+  // ... is not registered" after burning the full retry budget. A missing field
+  // is better reported by the schema, immediately and by name.
+  const activities = input.activityNames;
 
   const messages: Message[] = [
     ...input.messages,

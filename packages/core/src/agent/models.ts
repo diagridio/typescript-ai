@@ -2,18 +2,25 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 /**
- * I/O models for the Mastra ↔ Dapr Workflow integration.
+ * I/O models for the durable agent loop, shared by every adapter.
  *
- * Everything that crosses the workflow boundary is defined here as a Zod
- * schema rather than a bare interface. Two reasons:
+ * These live in `core` rather than in an adapter because none of them mention a
+ * framework: a message, a tool call, one model turn and the loop's own input and
+ * output are the same shapes whichever SDK produced them. They started out in
+ * the Mastra adapter, and a review pointed out the obvious consequence of
+ * leaving them there — adapter #2 copies the file, subtle invariants included,
+ * and the two drift.
+ *
+ * Everything that crosses the workflow boundary is defined here as a Zod schema
+ * rather than a bare interface. Two reasons:
  *
  * 1. Dapr persists workflow input, activity input and activity output as JSON
  *    in the state store. On replay those values come back from storage — i.e.
  *    from outside the process — so they are validated, not trusted. A schema
  *    change that would silently mis-read an in-flight workflow surfaces as a
  *    parse error instead of corrupt agent state.
- * 2. Mastra already speaks Zod for tool and output schemas, so the adapter and
- *    the framework share one validation vocabulary.
+ * 2. Agent SDKs generally already speak Zod for tool and output schemas, so an
+ *    adapter and its framework share one validation vocabulary.
  */
 
 import { z } from 'zod';
@@ -119,26 +126,39 @@ export const agentWorkflowInputSchema = z.object({
   messages: z.array(messageSchema).default([]),
   /** Hard cap on agent loop iterations. Mirrors the runner's maxIterations. */
   maxIterations: z.number().int().positive().default(25),
-  /** Opaque per-run metadata forwarded to Mastra's runtime context. */
+  /** Opaque per-run metadata forwarded to the framework's runtime context. */
   runtimeContext: z.record(z.string(), z.unknown()).optional(),
-  /**
-   * Activity names this turn must call, scoped to the runner that scheduled it.
-   *
-   * Workflow names are already per-agent (`dapr.<framework>.<Agent>.workflow`),
-   * but activity names were shared literals. Two runners in one process register
-   * their own closures under those same names on separate worker streams against
-   * the same sidecar, and the work-item request carries no capability list — so
-   * the sidecar could hand runner A's tool call to runner B's connection, where a
-   * handler exists and would answer it with B's tools. The orchestrator therefore
-   * calls names carried in its own input rather than module constants.
-   *
-   * Optional so a workflow scheduled by an older version still runs: absent, it
-   * falls back to the unscoped names.
-   */
-  activityNames: z.object({ model: z.string(), tool: z.string() }).optional(),
 });
 
-/** Output of the top-level agent workflow. */
+/**
+ * What is actually scheduled: a caller's turn plus the routing the runner adds.
+ *
+ * Split from {@link agentWorkflowInputSchema} because the two have different
+ * audiences. A caller supplies a prompt and a thread; `activityNames` comes from
+ * the runner's own identity, and is *required* here because the orchestrator
+ * cannot route without it.
+ *
+ * One schema forced a choice between two bad options: optional, and the
+ * orchestrator falls back to names nothing registers — or required, and every
+ * caller has to pass routing internals it should not know about, which is
+ * exactly what `invoke({ prompt, threadId })` in every quickstart would then
+ * fail to satisfy.
+ */
+export const scheduledWorkflowInputSchema = agentWorkflowInputSchema.extend({
+  /**
+   * The activity names this instance must call.
+   *
+   * Carried on the input rather than read from a module constant. The workflow
+   * name was already per-agent, but activity names were shared literals: two
+   * runners in one process register their own closures under those same names on
+   * separate worker streams against the same sidecar, and the work-item request
+   * carries no capability list — so the sidecar could hand runner A's tool call
+   * to runner B's connection, where a handler exists and would answer it with
+   * B's tools, and the result would be checkpointed as authoritative.
+   */
+  activityNames: z.object({ model: z.string(), tool: z.string() }),
+});
+
 /**
  * Output of the top-level agent workflow.
  *
@@ -190,6 +210,11 @@ export type InvokeToolOutput = z.infer<typeof invokeToolOutputSchema>;
  * runner.ts is exactly that two-field call.
  */
 export type AgentWorkflowInput = z.input<typeof agentWorkflowInputSchema>;
+
+/** {@link AgentWorkflowInput} plus the runner-supplied routing. Internal. */
+export type ScheduledWorkflowInput = z.input<
+  typeof scheduledWorkflowInputSchema
+>;
 export type AgentWorkflowOutput = z.infer<typeof agentWorkflowOutputSchema>;
 export type Checkpoint = z.infer<typeof checkpointSchema>;
 export type CheckpointIndex = z.infer<typeof checkpointIndexSchema>;

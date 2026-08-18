@@ -25,7 +25,7 @@ import {
   MAX_TOOL_RESULT_CHARS,
   type InvokeToolInput,
   type ToolInvoker,
-} from '@diagrid/agent-mastra';
+} from '@diagrid/agent-core';
 
 interface ActivityCall {
   readonly name: string;
@@ -37,10 +37,19 @@ interface ActivityCall {
  *
  * `results` are consumed in order, mirroring the sequence Dapr would replay.
  */
+/** The routing `schedule()` adds; tests should not have to repeat it. */
+const TEST_ACTIVITIES = {
+  model: ACTIVITY_INVOKE_MODEL,
+  tool: ACTIVITY_INVOKE_TOOL,
+} as const;
+
 async function runWorkflow(
-  input: unknown,
+  input: Record<string, unknown>,
   results: readonly unknown[]
 ): Promise<{ output: AgentWorkflowOutput; calls: ActivityCall[] }> {
+  // `activityNames` is required on the scheduled input, so default it here
+  // rather than in every case. A test that cares passes its own.
+  const scheduled = { activityNames: TEST_ACTIVITIES, ...input };
   const calls: ActivityCall[] = [];
   const ctx = {
     callActivity: (activity: unknown, activityInput?: unknown) => {
@@ -60,7 +69,7 @@ async function runWorkflow(
   // Driven with `await` because the orchestrator is an `async function*` — which
   // is a hard requirement of Dapr's executor, not a preference. See the note on
   // `agentWorkflow`.
-  const generator = agentWorkflow(ctx, input);
+  const generator = agentWorkflow(ctx, scheduled);
   let step = await generator.next();
   let index = 0;
 
@@ -391,14 +400,21 @@ describe('activity name scoping', () => {
     ]);
   });
 
-  it('falls back to unscoped names for a workflow scheduled before scoping', async () => {
-    // Replay safety: an in-flight instance scheduled by an older version has no
-    // activityNames in its checkpointed input.
-    const { calls } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
-      assistantText('done'),
-    ]);
+  it('fails loudly when routing is missing entirely', async () => {
+    // Replaces a fallback to unscoped literals. Nothing registers those names,
+    // so the fallback only ever spent the retry budget before failing; a schema
+    // error names the missing field immediately.
+    const ctx = {
+      callActivity: () => undefined,
+      createTimer: () => undefined,
+      getCurrentUtcDateTime: () => new Date(0),
+    };
+    const generator = agentWorkflow(ctx as unknown as WorkflowContext, {
+      prompt: 'go',
+      threadId: 't1',
+    });
 
-    expect(calls[0]?.name).toBe(ACTIVITY_INVOKE_MODEL);
+    await expect(generator.next()).rejects.toThrow(/activityNames/);
   });
 });
 

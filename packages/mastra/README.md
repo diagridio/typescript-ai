@@ -105,14 +105,21 @@ workflow instance id, which you can poll with `runner.getWorkflowStatus(id)`.
 
 The same shape every adapter in this repo follows:
 
-| File          | Role                                                                    |
-| ------------- | ----------------------------------------------------------------------- |
-| `runner.ts`   | Public entrypoint — `DaprWorkflowAgentRunner`, lifecycle and invocation |
-| `workflow.ts` | The Dapr workflow (durable agent loop) and its activities               |
-| `models.ts`   | Zod schemas for everything crossing the workflow boundary               |
-| `state.ts`    | `DaprMastraCheckpointer` — conversation memory in a Dapr state store    |
-| `mapper.ts`   | `MastraAgentMapper` — the `BaseAgentMapper` implementation              |
-| `version.ts`  | Version marker, stamped by the release workflow                         |
+| File         | Role                                                                     |
+| ------------ | ------------------------------------------------------------------------ |
+| `bridge.ts`  | Drives Mastra one step at a time — the only file that knows Mastra's API |
+| `mapper.ts`  | `MastraAgentMapper` — the `BaseAgentMapper` implementation               |
+| `runner.ts`  | Public entrypoint — `DaprWorkflowAgentRunner`, lifecycle and invocation  |
+| `state.ts`   | `DaprMastraCheckpointer` — core's checkpointer with the `mastra` prefix  |
+| `version.ts` | Version marker, stamped by the release workflow                          |
+
+The durable agent loop is **not** here. The orchestrator, its activities, the
+retry behaviour and the I/O schemas live in `@diagrid/agent-core` under
+`src/agent/`, and this package re-exports them so importing the adapter is still
+enough to work with a turn. They moved there because none of them mentioned
+Mastra: leaving them in an adapter meant adapter #2 would copy the durable loop
+and the cross-language checkpoint key layout, subtle invariants included, and the
+two would drift.
 
 ## Notes on metadata extraction
 
