@@ -95,3 +95,64 @@ export {
   type ObservabilityConfig,
   type TelemetryHandle,
 } from './telemetry/telemetry';
+
+// --- The durable agent loop ------------------------------------------------
+// Framework-agnostic: an adapter supplies the model/tool invokers and the
+// framework token, and gets the orchestrator, its activities and its I/O
+// schemas from here. Previously these lived in the Mastra adapter, where a
+// second adapter would have had to copy them.
+export {
+  ACTIVITY_INVOKE_MODEL,
+  ACTIVITY_INVOKE_TOOL,
+  ACTIVITY_MAX_ATTEMPTS,
+  ACTIVITY_RETRY_BASE_DELAY_MS,
+  MAX_TOOL_RESULT_CHARS,
+  activityNamesFor,
+  agentWorkflow,
+  invokeModelActivity,
+  invokeToolActivity,
+} from './agent/workflow';
+
+export type { ModelInvoker, ToolInvoker, ToolInvokers } from './agent/workflow';
+
+export {
+  WorkflowStatus,
+  agentWorkflowInputSchema,
+  agentWorkflowOutputSchema,
+  scheduledWorkflowInputSchema,
+  checkpointIndexSchema,
+  checkpointSchema,
+  invokeModelInputSchema,
+  invokeModelOutputSchema,
+  invokeToolInputSchema,
+  invokeToolOutputSchema,
+  messageRoleSchema,
+  messageSchema,
+  workflowStatusSchema,
+} from './agent/models';
+
+export type {
+  AgentWorkflowInput,
+  AgentWorkflowOutput,
+  ScheduledWorkflowInput,
+  Checkpoint,
+  CheckpointIndex,
+  InvokeModelInput,
+  InvokeModelOutput,
+  InvokeToolInput,
+  InvokeToolOutput,
+  Message,
+  MessageRole,
+  WorkflowStatusValue,
+} from './agent/models';
+
+export {
+  DaprAgentCheckpointer,
+  checkpointKey,
+  threadIndexKey,
+} from './state/checkpointer';
+
+export type {
+  DaprAgentCheckpointerOptions,
+  SaveCheckpointArgs,
+} from './state/checkpointer';

@@ -53,7 +53,7 @@ import {
   agentWorkflowOutputSchema,
   type AgentWorkflowInput,
   type AgentWorkflowOutput,
-} from './models';
+} from '@diagrid/agent-core';
 import { DaprMastraCheckpointer } from './state';
 import {
   activityNamesFor,
@@ -62,7 +62,7 @@ import {
   invokeToolActivity,
   type ModelInvoker,
   type ToolInvoker,
-} from './workflow';
+} from '@diagrid/agent-core';
 
 export interface DaprWorkflowAgentRunnerOptions extends BaseWorkflowRunnerOptions {
   /** The Mastra agent to make durable. */
@@ -318,7 +318,7 @@ export class DaprWorkflowAgentRunner extends BaseWorkflowRunner {
         ...input,
         maxIterations: input.maxIterations ?? this.maxIterations,
         // The orchestrator calls whatever names this runner registered.
-        activityNames: activityNamesFor(this.name),
+        activityNames: activityNamesFor(SupportedFrameworks.MASTRA, this.name),
       },
       options.workflowId
     );
@@ -366,7 +366,7 @@ export class DaprWorkflowAgentRunner extends BaseWorkflowRunner {
     const tool = (ctx: WorkflowActivityContext, input: unknown) =>
       invokeToolActivity(ctx, input, this.#toolInvokers);
 
-    const activities = activityNamesFor(this.name);
+    const activities = activityNamesFor(SupportedFrameworks.MASTRA, this.name);
     runtime.registerActivityWithName(activities.model, model);
     runtime.registerActivityWithName(activities.tool, tool);
   }

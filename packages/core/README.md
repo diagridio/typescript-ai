@@ -9,16 +9,34 @@ package whose two base classes you implement.
 
 ## What lives here
 
-| Module          | Export                                   | Role                                                                                    |
-| --------------- | ---------------------------------------- | --------------------------------------------------------------------------------------- |
-| `workflow/`     | `BaseWorkflowRunner`                     | Runtime lifecycle, canonical workflow naming, status/terminate/purge, graceful shutdown |
-| `workflow/`     | `buildWorkflowName`, `sanitizeAgentName` | The cross-language naming contract (`dapr.<framework>.<AgentName>.workflow`)            |
-| `mapping/`      | `BaseAgentMapper`, `AgentMapper`         | **The framework extension point** — maps a native agent onto registry metadata          |
-| `metadata/`     | `agentMetadataRecordSchema`, …           | Zod schemas for the agent registry record                                               |
-| `state/`        | `DaprStateStore`                         | JSON-serializing wrapper over a Dapr state store component                              |
-| `pubsub/`       | `DaprPubSub`                             | Publisher for agent lifecycle events                                                    |
-| `telemetry/`    | `setupTelemetry`, `getTracer`            | OTLP/gRPC tracing — a **no-op** unless `OTEL_EXPORTER_OTLP_ENDPOINT` (or config) is set |
-| `workflow/dapr` | Dapr workflow types                      | Type-only re-exports, so adapters never depend on `@dapr/dapr` themselves               |
+| Module          | Export                                    | Role                                                                                         |
+| --------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `agent/`        | `agentWorkflow`, `invokeModelActivity`, … | **The durable agent loop** — orchestrator, activities and activity retry, framework-agnostic |
+| `agent/`        | `agentWorkflowInputSchema`, …             | Zod schemas for everything crossing the workflow boundary                                    |
+| `workflow/`     | `BaseWorkflowRunner`                      | Runtime lifecycle, canonical workflow naming, status/terminate/purge, graceful shutdown      |
+| `workflow/`     | `buildWorkflowName`, `sanitizeAgentName`  | The cross-language naming contract (`dapr.<framework>.<AgentName>.workflow`)                 |
+| `mapping/`      | `BaseAgentMapper`, `AgentMapper`          | **The framework extension point** — maps a native agent onto registry metadata               |
+| `metadata/`     | `agentMetadataRecordSchema`, …            | Zod schemas for the agent registry record                                                    |
+| `state/`        | `DaprStateStore`                          | JSON-serializing wrapper over a Dapr state store component                                   |
+| `state/`        | `DaprAgentCheckpointer`                   | Conversation-memory checkpoints; key layout shared with `python-ai`, prefix per adapter      |
+| `pubsub/`       | `DaprPubSub`                              | Publisher for agent lifecycle events                                                         |
+| `telemetry/`    | `setupTelemetry`, `getTracer`             | OTLP/gRPC tracing — a **no-op** unless `OTEL_EXPORTER_OTLP_ENDPOINT` (or config) is set      |
+| `workflow/dapr` | Dapr workflow types                       | Type-only re-exports, so adapters never depend on `@dapr/dapr` themselves                    |
+
+### Why the agent loop is here and not in an adapter
+
+It began in the Mastra adapter, and a review made the consequence plain: none of
+it mentions a framework. A message, a tool call, one model turn, the retry
+policy and the checkpoint key layout are the same shapes whichever SDK produced
+them — so adapter #2 would have copied the whole durable loop, including
+invariants that are easy to get subtly wrong (the orchestrator must be an
+`async function*`; the schema-parse must sit _outside_ the retry region; the
+clock must come from `getCurrentUtcDateTime()`). Two copies drift, and the
+drift is silent.
+
+What is genuinely per-framework is small: driving the SDK one step at a time so
+tool execution stays inside checkpointed activities, and reading a native agent
+structurally for its metadata.
 
 ## Writing an adapter
 

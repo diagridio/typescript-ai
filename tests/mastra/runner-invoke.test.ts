@@ -22,7 +22,7 @@ import { WorkflowRuntimeStatus, type WorkflowState } from '@diagrid/agent-core';
 import {
   DaprWorkflowAgentRunner,
   WorkflowStatus,
-  type AgentWorkflowInput,
+  type ScheduledWorkflowInput,
   WorkflowTimeoutError,
   type AgentWorkflowOutput,
 } from '@diagrid/agent-mastra';
@@ -229,7 +229,7 @@ describe('schedule', () => {
   /** Capture the input the runner hands to Dapr. */
   function capturingRunner(options: { maxIterations?: number } = {}): {
     runner: TestableRunner;
-    sent: () => Partial<AgentWorkflowInput>;
+    sent: () => Partial<ScheduledWorkflowInput>;
   } {
     const seen: unknown[] = [];
     const runner = new TestableRunner({
@@ -249,7 +249,7 @@ describe('schedule', () => {
     });
     return {
       runner,
-      sent: () => seen[0] as Partial<AgentWorkflowInput>,
+      sent: () => seen[0] as Partial<ScheduledWorkflowInput>,
     };
   }
 

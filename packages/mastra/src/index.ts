@@ -35,32 +35,30 @@ export { MastraAgentMapper, type MastraAgentLike } from './mapper';
 
 export {
   DaprMastraCheckpointer,
+  MASTRA_KEY_PREFIX,
   type DaprMastraCheckpointerOptions,
-  type SaveCheckpointArgs,
 } from './state';
 
+// Re-exported from `@diagrid/agent-core`, where the durable agent loop and its
+// I/O schemas now live — they never mentioned Mastra, and a second adapter would
+// have had to copy them. Kept on this package's surface so importing the adapter
+// remains enough to work with a turn.
 export {
   ACTIVITY_INVOKE_MODEL,
   ACTIVITY_INVOKE_TOOL,
   ACTIVITY_MAX_ATTEMPTS,
   ACTIVITY_RETRY_BASE_DELAY_MS,
-  activityNamesFor,
   MAX_TOOL_RESULT_CHARS,
+  activityNamesFor,
   agentWorkflow,
-  invokeModelActivity,
-  invokeToolActivity,
-  type ModelInvoker,
-  type ToolInvoker,
-  type ToolInvokers,
-} from './workflow';
-
-export {
   agentWorkflowInputSchema,
   agentWorkflowOutputSchema,
   checkpointIndexSchema,
   checkpointSchema,
+  invokeModelActivity,
   invokeModelInputSchema,
   invokeModelOutputSchema,
+  invokeToolActivity,
   invokeToolInputSchema,
   invokeToolOutputSchema,
   messageRoleSchema,
@@ -77,5 +75,10 @@ export {
   type InvokeToolOutput,
   type Message,
   type MessageRole,
+  type ModelInvoker,
+  type SaveCheckpointArgs,
+  type ScheduledWorkflowInput,
+  type ToolInvoker,
+  type ToolInvokers,
   type WorkflowStatusValue,
-} from './models';
+} from '@diagrid/agent-core';

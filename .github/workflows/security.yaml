@@ -55,6 +55,21 @@ jobs:
         run: pnpm audit --audit-level high
 
   codeql:
+    # Code scanning needs GitHub Code Security, which a private repository only
+    # has with Advanced Security. Without it the analysis runs to completion and
+    # then dies on upload — "Code Security must be enabled for this repository
+    # to use code scanning", reported as a *configuration error* rather than a
+    # finding. That is a permanently red job that says nothing about the code, so
+    # it is gated on visibility instead of failing every run.
+    #
+    # This activates by itself when the repository goes public; nothing to
+    # remember. Until then `audit` below still covers dependency CVEs, and the
+    # `security-and-quality` pack is a static analysis gap, not a test gap.
+    #
+    # `== false` rather than `!`: on events whose payload carries no repository
+    # object the expression is null, and skipping is the safe direction — a
+    # missing payload must not be read as "public".
+    if: github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
