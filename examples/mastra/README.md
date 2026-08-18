@@ -39,8 +39,8 @@ Components live in the Catalyst project, so there is **no** `--resources-path`.
 ```bash
 diagrid login
 diagrid project create typescript-ai-dev \
-  --enable-agent-infrastructure \
-  --use --ignore-if-exists      # provisions pubsub, KV store, workflow, registry
+  --deploy-managed-kv --deploy-managed-pubsub --enable-managed-workflow \
+  --wait --use --ignore-if-exists   # provisions pubsub, KV store, workflow, registry
 
 # Creates the App ID if it does not exist, and needs no file on disk
 diagrid dev run --app-id mastra-inspect -- pnpm inspect
@@ -50,7 +50,7 @@ diagrid dev run --app-id mastra-inspect -- pnpm inspect
 `DAPR_API_TOKEN`; `@dapr/dapr` reads both from the environment, so the adapter
 needs no Catalyst-specific code.
 
-**Nothing else to configure.** `--enable-agent-infrastructure` provisions
+**Nothing else to configure.** A cloud project with the managed KV store provisions
 components named `agent-memory`, `agent-pubsub`, `agent-runtime` and
 `agent-workflow` — and the first two are already the adapter's defaults
 (`DEFAULT_STORE_NAME` / `DEFAULT_PUBSUB_NAME` in `@diagrid/agent-core`). Confirm
@@ -202,8 +202,8 @@ nothing:
 which declares the first two. They are separate components because Dapr permits
 only one actor state store, and that role belongs to `agent-workflow`.
 
-**Catalyst** provisions all of them via `--enable-agent-infrastructure`; that path
-ignores `resources/` entirely.
+**Catalyst** provisions all of them with the project; that path ignores `resources/`
+entirely.
 
 If your project uses different names, `DIAGRID_STATE_STORE` overrides the memory
 store without a code edit. Swap in your own state store for anything real — any

@@ -82,7 +82,7 @@ export function requireSidecar(appId: string, script: string): SidecarMode {
       `${runCommands(appId, script)}\n\n` +
       `For local Dapr, run "dapr init" first (needs Docker).\n` +
       `For Catalyst, create a project with:\n` +
-      `  diagrid project create <name> --enable-agent-infrastructure --use`
+      `  diagrid project create <name> --deploy-managed-kv --deploy-managed-pubsub --enable-managed-workflow --use`
   );
   process.exit(1);
 }

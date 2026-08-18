@@ -1,7 +1,7 @@
 # Dapr components for the Mastra examples, running locally under `dapr run`.
 #
 # These deliberately mirror the components a Catalyst project provisions with
-# `diagrid project create --enable-agent-infrastructure`, so switching between
+# `diagrid project create --deploy-managed-kv --deploy-managed-pubsub`, so switching between
 # the two run paths needs no configuration change:
 #
 #   agent-workflow   state store for the Dapr workflow engine (actor state store)
