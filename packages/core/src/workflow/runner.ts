@@ -45,7 +45,13 @@ export interface BaseWorkflowRunnerOptions {
 }
 
 /** Lifecycle phase of a runner, exposed for tests and health endpoints. */
-export type RunnerStatus = 'created' | 'started' | 'stopped';
+/**
+ * `stopping` exists so shutdown can guard re-entry before its first await
+ * without claiming to be finished. Without it, a shutdown that failed part-way
+ * still read `stopped`, and the next call returned early instead of retrying —
+ * so resources this runner owned were never released.
+ */
+export type RunnerStatus = 'created' | 'started' | 'stopping' | 'stopped';
 
 export abstract class BaseWorkflowRunner {
   readonly name: string;
@@ -102,6 +108,18 @@ export abstract class BaseWorkflowRunner {
    *
    * Idempotent: calling `start()` on an already-started runner is a no-op, so
    * a framework that eagerly starts on first invoke stays safe.
+   *
+   * # `started` does not mean the sidecar is reachable
+   *
+   * `WorkflowRuntime.start()` deliberately does not await its connection: the
+   * SDK sets its own running flag, returns, and retries in the background. So
+   * this resolves — and {@link status} reads `started` — even when nothing is
+   * listening on the configured host and port. There is no callback or promise
+   * to observe that failure through.
+   *
+   * Treat `started` as "the runtime was constructed and registered", not as a
+   * reachability check. A real readiness probe needs the sidecar's health
+   * endpoint, which is on the HTTP port this runner does not take.
    */
   async start(): Promise<void> {
     if (this.#status === 'started') {
@@ -138,21 +156,69 @@ export abstract class BaseWorkflowRunner {
    *
    * Safe to call from a SIGINT/SIGTERM handler and safe to call twice, which
    * is what {@link registerShutdownHandlers} relies on.
+   *
+   * # Every step runs even if an earlier one throws
+   *
+   * This used to `await` the four cleanup calls in sequence after setting the
+   * status to `stopped`. Two things went wrong together, and a not-ready
+   * sidecar triggered both.
+   *
+   * `WorkflowRuntime.start()` does not await its connection — the SDK sets its
+   * own running flag, returns, and fails in the background — so against an
+   * unreachable sidecar this runner reads `started` while the SDK's worker is
+   * not running. `stop()` then throws its own `The worker is not running.`
+   * guard. Because the status had *already* been flipped to `stopped`, the
+   * throw skipped `workflowClient.stop()`, `stateStore.close()` and
+   * `telemetry.shutdown()`, and every later `shutdown()` returned early — so
+   * the connections this runner owned were never released and nothing said so.
+   *
+   * Each step is now attempted independently and failures are collected, so one
+   * broken handle cannot strand the others. The status only becomes `stopped`
+   * once cleanup has actually been attempted, and any failures are reported to
+   * the caller rather than swallowed.
    */
   async shutdown(): Promise<void> {
     if (this.#status !== 'started') {
       return;
     }
-    this.#status = 'stopped';
+    // Guards re-entry before the first await, so a second call — or a second
+    // signal — cannot run cleanup concurrently with the first.
+    this.#status = 'stopping';
 
-    await this.workflowRuntime?.stop();
-    await this.workflowClient?.stop();
-    await this.stateStore.close();
-    await this.telemetry?.shutdown();
+    const failures: unknown[] = [];
+    const attempt = async (
+      what: string,
+      fn: () => Promise<unknown> | undefined
+    ) => {
+      try {
+        await fn();
+      } catch (cause) {
+        failures.push(
+          new Error(`failed to ${what} while shutting down`, { cause })
+        );
+      }
+    };
+
+    await attempt('stop the workflow runtime', () =>
+      this.workflowRuntime?.stop()
+    );
+    await attempt('stop the workflow client', () =>
+      this.workflowClient?.stop()
+    );
+    await attempt('close the state store', () => this.stateStore.close());
+    await attempt('shut down telemetry', () => this.telemetry?.shutdown());
 
     this.workflowRuntime = undefined;
     this.workflowClient = undefined;
     this.telemetry = undefined;
+    this.#status = 'stopped';
+
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        `${this.name}: ${failures.length} of 4 shutdown steps failed`
+      );
+    }
   }
 
   /**
@@ -165,7 +231,18 @@ export abstract class BaseWorkflowRunner {
    */
   registerShutdownHandlers(): () => void {
     const handler = () => {
-      void this.shutdown();
+      // The rejection is caught rather than discarded. `void promise` leaves an
+      // unhandled rejection, and Node >= 15 terminates the process on one — so
+      // a runner whose sidecar was already unreachable turned a graceful
+      // SIGTERM into a crash, at exactly the moment the operator was trying to
+      // shut down cleanly. A library that installs process-wide signal handlers
+      // must not be able to do that.
+      void this.shutdown().catch((cause: unknown) => {
+        process.emitWarning(
+          `${this.name}: shutdown did not complete cleanly: ${String(cause)}`,
+          { code: 'DIAGRID_SHUTDOWN_INCOMPLETE' }
+        );
+      });
     };
     process.once('SIGINT', handler);
     process.once('SIGTERM', handler);

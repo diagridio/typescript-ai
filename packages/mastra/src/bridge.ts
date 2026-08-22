@@ -228,8 +228,14 @@ function safeParse(value: string): unknown {
  * Build the function the `invokeModel` activity delegates to.
  *
  * One model call, tools offered but never executed here. The activity boundary
- * is what makes the call durable: its result is checkpointed, so a crash after
- * this returns never re-issues (or re-bills) it.
+ * is what makes the call durable: once its result is checkpointed, replay reads
+ * the checkpoint instead of calling the model again.
+ *
+ * Not exactly-once. The engine guarantees each activity runs **at least** once,
+ * and there is a window between this function returning and Dapr durably
+ * recording that completion. A crash inside that window re-runs the activity —
+ * so the model is called, and billed, twice. The checkpoint narrows the window;
+ * it does not close it.
  */
 export function createModelInvoker(agent: MastraAgentLike) {
   const generating = agent as GeneratingAgent;

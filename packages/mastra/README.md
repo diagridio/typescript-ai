@@ -20,7 +20,7 @@ model.
 | Durable agent loop (`agentWorkflow`)       | ✅ model call → tool activities → repeat                             |
 | Model bridge                               | ✅ one step per iteration via `clientTools`                          |
 | Tool bridge                                | ✅ one checkpointed activity per tool call                           |
-| Crash recovery                             | ✅ tool ran exactly once across a mid-turn kill                      |
+| Crash recovery                             | ✅ tool not re-run after a mid-turn kill (see at-least-once below)   |
 | Activity retry (model and tool)            | ✅ in-orchestrator, 3 attempts with durable backoff                  |
 | Registry metadata (`getMetadata()`)        | ⚠️ the record is correct, but nothing publishes it — see below       |
 | Checkpoint persistence                     | ⚠️ implemented and tested, but the runner never calls it — see below |
@@ -155,3 +155,23 @@ the whole record for a real agent.
 ## License
 
 [Business Source License 1.1](../../LICENSE.md) — © 2026–Present Diagrid Inc.
+
+## At-least-once, not exactly-once
+
+The workflow engine guarantees that each activity runs **at least once**. Any
+activity with a side effect must therefore be safe to run twice.
+
+The activity boundary makes a completed call durable: once its result is
+checkpointed, replay reads the checkpoint rather than calling out again. But
+there is a window between an activity function returning and the engine durably
+recording that completion, and a crash inside that window re-runs the activity.
+For `invokeModel` that means the model is called — and billed — twice. For a tool
+it means whatever the tool does happens twice.
+
+So a tool that charges a card, sends an email, or writes a non-idempotent record
+needs its own idempotency key or conditional write. The engine narrows the window
+and cannot close it.
+
+The crash-recovery example demonstrates one specific kill timing where the tool is
+not re-run. It does not, and structurally cannot, demonstrate the absence of this
+window.
