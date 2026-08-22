@@ -39,6 +39,11 @@ on:
         required: false
         default: false
         type: boolean
+      dist_tag:
+        description: "npm dist-tag override (blank = latest for a release, next for a prerelease)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   id-token: write # npm trusted publishing / provenance
@@ -104,6 +109,7 @@ jobs:
       - name: Pre-flight
         env:
           VERSION: ${{ inputs.version }}
+          DIST_TAG: ${{ inputs.dist_tag }}
         run: |
           set -euo pipefail
           fail=0
@@ -111,7 +117,25 @@ jobs:
           # A prerelease must not become `latest`, which is what `npm publish`
           # defaults to. The version validator accepts `0.2.0-rc.1`, so without
           # this a plain `npm install` would pick up a release candidate.
-          if printf '%s' "$VERSION" | grep -q -- '-'; then
+          #
+          # An explicit dist_tag overrides the inference, for the case the
+          # inference cannot cover: a plain semver version that should NOT be
+          # latest — a `preview` tag for the first internal release, or a
+          # backport to an older line that must not move `latest` forward.
+          # Deliberately not allowed to make a prerelease `latest`, since that
+          # is the one outcome nobody wants and the inference exists to prevent.
+          if [ -n "$DIST_TAG" ]; then
+            if [ "$DIST_TAG" = "latest" ] && printf '%s' "$VERSION" | grep -q -- '-'; then
+              echo "::error::refusing to publish prerelease $VERSION under dist-tag 'latest'"
+              fail=1
+            fi
+            if ! printf '%s' "$DIST_TAG" | grep -Eq '^[a-z][a-z0-9-]*$'; then
+              echo "::error::'$DIST_TAG' is not a valid dist-tag (lowercase letters, digits and hyphens)"
+              fail=1
+            fi
+            echo "NPM_DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+            echo "publishing under the requested dist-tag '$DIST_TAG'"
+          elif printf '%s' "$VERSION" | grep -q -- '-'; then
             echo "NPM_DIST_TAG=next" >> "$GITHUB_ENV"
             echo "prerelease detected — publishing under dist-tag 'next'"
           else

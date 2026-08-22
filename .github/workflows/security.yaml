@@ -9,8 +9,9 @@ name: Security Scanning
 #           no equivalent in the JS ecosystem worth running alongside it.
 
 on:
+  # Every pull request, not just those into main — a dependency audit that only
+  # runs at the final merge tells you about a problem introduced several PRs ago.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
   schedule:

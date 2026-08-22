@@ -5,11 +5,14 @@ name: Lint and Build
 # integration.yaml and e2e-ollama.yaml.
 
 on:
+  # No branch filter, deliberately. This used to list `main`, `feature/*` and
+  # `release-*` — but this repo's branches are named `feat/`, so every pull
+  # request into the stack matched nothing and ran no checks at all. #4 and #5
+  # both merged with zero CI, silently, and nothing in the PR UI said so.
+  #
+  # An enumerated list of target branches has to be kept in step with a naming
+  # convention nobody wrote down. Running on every pull request cannot drift.
   pull_request:
-    branches:
-      - main
-      - feature/*
-      - release-*
   push:
     branches:
       - main
