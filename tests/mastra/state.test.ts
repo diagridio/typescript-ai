@@ -145,8 +145,8 @@ describe('DaprMastraCheckpointer', () => {
     await expect(checkpointer.load('t1', 'cp-1')).rejects.toThrow();
   });
 
-  it('defaults to the shared agent-memory store', () => {
-    expect(new DaprMastraCheckpointer().storeName).toBe('agent-memory');
+  it('defaults to the managed kvstore store', () => {
+    expect(new DaprMastraCheckpointer().storeName).toBe('kvstore');
     expect(new DaprMastraCheckpointer({ storeName: 'custom' }).storeName).toBe(
       'custom'
     );

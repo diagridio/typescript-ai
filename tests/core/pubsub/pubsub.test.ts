@@ -36,7 +36,8 @@ function fakePubSubClient(): PubSubClient & {
 }
 
 describe('DaprPubSub', () => {
-  it('defaults to the shared agent-pubsub component', () => {
+  it('defaults to the managed pubsub component', () => {
+    expect(DEFAULT_PUBSUB_NAME).toBe('pubsub');
     expect(new DaprPubSub().pubsubName).toBe(DEFAULT_PUBSUB_NAME);
     expect(new DaprPubSub({ pubsubName: 'custom' }).pubsubName).toBe('custom');
   });

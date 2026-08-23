@@ -50,11 +50,11 @@ diagrid dev run --app-id mastra-inspect -- pnpm inspect
 `DAPR_API_TOKEN`; `@dapr/dapr` reads both from the environment, so the adapter
 needs no Catalyst-specific code.
 
-**Nothing else to configure.** A cloud project with the managed KV store provisions
-components named `agent-memory`, `agent-pubsub`, `agent-runtime` and
-`agent-workflow` — and the first two are already the adapter's defaults
-(`DEFAULT_STORE_NAME` / `DEFAULT_PUBSUB_NAME` in `@diagrid/agent-core`). Confirm
-with:
+**Nothing else to configure.** Those three flags provision components named
+`kvstore`, `pubsub` and `workflows-state` — and the first two are the adapter's
+defaults (`DEFAULT_STORE_NAME` / `DEFAULT_PUBSUB_NAME` in `@diagrid/agent-core`),
+while the third is claimed by the workflow engine, which finds it by its
+`actorStateStore` flag rather than by name. Confirm with:
 
 ```bash
 diagrid component list --project <project>
@@ -62,6 +62,12 @@ diagrid component list --project <project>
 
 That single command is the recommended path. It is also the only one that keeps
 credentials off disk — see the warning below.
+
+> **If you see `agent-memory` and `agent-pubsub` instead**, the project was
+> created with agent infrastructure enabled — the dapr-agents component set, now
+> reached via `diagrid project update <project> --enable-agent-infrastructure`.
+> Those names are equally real; they are just a different project shape. Set
+> `DIAGRID_STATE_STORE=agent-memory` and the examples run unchanged.
 
 <details>
 <summary>Multi-app runs with a scaffolded dev file</summary>
@@ -190,22 +196,26 @@ diagrid dev run --app-id mastra-retry -- pnpm retry
 ## Dapr components
 
 Both paths use the same component names, so switching between them changes
-nothing:
+nothing. Catalyst fixes these names — `resources/` is what copies them, not the
+other way round:
 
-| Component        | Role                                      | Local (`resources/`) | Catalyst         |
-| ---------------- | ----------------------------------------- | -------------------- | ---------------- |
-| `agent-workflow` | workflow engine state (actor state store) | `state.redis`        | `state.diagrid`  |
-| `agent-memory`   | conversation memory / checkpoints         | `state.redis`        | `state.diagrid`  |
-| `agent-pubsub`   | agent lifecycle events                    | not used yet         | `pubsub.diagrid` |
+| Component         | Role                                      | Local (`resources/`) | Catalyst         |
+| ----------------- | ----------------------------------------- | -------------------- | ---------------- |
+| `workflows-state` | workflow engine state (actor state store) | `state.redis`        | `state.diagrid`  |
+| `kvstore`         | conversation memory / checkpoints         | `state.redis`        | `state.diagrid`  |
+| `pubsub`          | agent lifecycle events                    | not used yet         | `pubsub.diagrid` |
 
 **Local Dapr** reads [`resources/statestore.yaml`](resources/statestore.yaml),
 which declares the first two. They are separate components because Dapr permits
-only one actor state store, and that role belongs to `agent-workflow`.
+only one actor state store, and that role belongs to `workflows-state`.
 
-**Catalyst** provisions all of them with the project; that path ignores `resources/`
-entirely.
+**Catalyst** provisions all three with the project — `kvstore` from
+`--deploy-managed-kv`, `pubsub` from `--deploy-managed-pubsub`,
+`workflows-state` from `--enable-managed-workflow`; that path ignores
+`resources/` entirely.
 
-If your project uses different names, `DIAGRID_STATE_STORE` overrides the memory
+If your project uses different names — a project with agent infrastructure
+enabled, or your own state component — `DIAGRID_STATE_STORE` overrides the memory
 store without a code edit. Swap in your own state store for anything real — any
 Dapr state component with actor support works.
 

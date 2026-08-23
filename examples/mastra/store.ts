@@ -4,15 +4,17 @@
 /**
  * State store selection shared by the examples.
  *
- * The component name differs between the two run paths, which is the one place
- * the same code cannot be used unchanged:
+ * Both run paths use the same component name, so neither needs configuring:
  *
- * - **Local Dapr** — `./resources/statestore.yaml` declares `agent-memory`, which
- *   is `DEFAULT_STORE_NAME` in `@diagrid/agent-core`, so nothing needs setting.
- * - **Diagrid Catalyst** — the project's managed KV store has its own name (run
- *   `diagrid connection list` to see it). Set `DIAGRID_STATE_STORE` to it.
+ * - **Local Dapr** — `./resources/statestore.yaml` declares `kvstore`.
+ * - **Diagrid Catalyst** — `--deploy-managed-kv` provisions a managed KV store
+ *   component, and it is always called `kvstore`.
  *
- * Reading it from the environment keeps both paths code-edit-free.
+ * That name is `DEFAULT_STORE_NAME` in `@diagrid/agent-core`. Reading an
+ * override from the environment is still worth it for the projects where the
+ * name genuinely differs — a project created with `--enable-agent-infrastructure`
+ * has `agent-memory` instead, and a bring-your-own state component can be
+ * called anything. `DIAGRID_STATE_STORE` covers both without a code edit.
  */
 
 import { DaprStateStore, DEFAULT_STORE_NAME } from '@diagrid/agent-core';
