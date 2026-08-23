@@ -10,7 +10,8 @@
 - [ ] New or changed behaviour is covered by a test
 - [ ] Integration lane checked (`make test-integration`) — required when
       touching workflow registration, state, or the Dapr surface
-- [ ] Ollama e2e checked — apply the `e2e-ollama` label to run it on this PR
+- [ ] Ollama e2e checked — it runs automatically only on PRs into `main`, so on a
+      stacked PR dispatch `E2E Tests (Ollama)` by hand or run the suite locally
 
 ## Adapter checklist
 
