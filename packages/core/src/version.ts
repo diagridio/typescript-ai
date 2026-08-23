@@ -9,4 +9,4 @@
  * workflow rewrites this line together with every `package.json` version — see
  * `.github/workflows/npm-release.yaml`.
  */
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';

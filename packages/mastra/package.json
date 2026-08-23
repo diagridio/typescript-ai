@@ -1,6 +1,6 @@
 {
   "name": "@diagrid/agent-mastra",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Durable execution of Mastra agents on Dapr Workflows",
   "keywords": [
     "dapr",

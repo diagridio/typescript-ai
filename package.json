@@ -1,6 +1,6 @@
 {
   "name": "@diagrid/typescript-ai",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Durable workflow integrations for TypeScript AI agent frameworks",
   "license": "BUSL-1.1",

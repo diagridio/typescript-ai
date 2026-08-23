@@ -1,6 +1,6 @@
 {
   "name": "@diagrid/agent-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared Dapr Workflow runtime for Diagrid AI agent framework adapters",
   "keywords": [
     "dapr",
