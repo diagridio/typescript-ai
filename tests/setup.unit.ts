@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 /**
- * Shared test setup, applied to both the unit and integration projects.
+ * Test setup for the `unit` project only.
+ *
+ * The `integration` project deliberately declares no setup file: scrubbing
+ * `DAPR_*` and `OTEL_*` is exactly wrong there, because those variables are how
+ * an integration run is configured. See the comment in `vitest.config.ts`.
  *
  * The Python sibling's `tests/agent/conftest.py` exists mainly to stop
  * `DaprClient` from blocking 60s on a missing sidecar. The TypeScript SDK has

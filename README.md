@@ -17,14 +17,20 @@ This is the TypeScript sibling of
 
 Get started with [Diagrid Catalyst for free](https://diagrid.ws/get-catalyst).
 
-> ### Status: working, not yet published
+> ### Status: working, published privately
 >
 > The [Mastra](https://mastra.ai) adapter runs real agent turns as Dapr
 > Workflows, verified end to end against both a local sidecar and Diagrid
 > Catalyst: tool calls execute as separate checkpointed activities, and a process
-> killed mid-turn resumes without recomputing completed work. Nothing is
-> published to npm yet — see
+> killed mid-turn resumes without recomputing completed work. See
 > [`packages/mastra/README.md`](packages/mastra/README.md) for the detail.
+>
+> `0.1.0` of both packages is on npm but **private**, published by hand so the
+> packages would exist and npm trusted publishing could be configured against
+> them. The first release through
+> [the workflow](.github/workflows/npm-release.yaml) is `0.1.1`, and it publishes
+> with `--access public` — that is the point at which these become installable by
+> anyone.
 
 ## Community
 

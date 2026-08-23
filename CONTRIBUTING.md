@@ -176,5 +176,16 @@ Use the `dry_run` input first — it does everything except commit, tag, release
 and publish, and uploads the tarballs so you can inspect exactly what would
 ship.
 
-npm credentials are **not** configured yet; the workflow header lists what an
-npm org admin has to set up (trusted publishing, or an `NPM_TOKEN` secret).
+`0.1.0` of both packages is already on npm, **private**, published by hand from a
+branch so the packages would exist — a trusted publisher can only be added on a
+package's own settings page. Those tarballs therefore carry no provenance
+attestation: `--provenance` needs the publish to happen inside GitHub Actions.
+
+The workflow is wired for npm OIDC trusted publishing (`id-token: write`, Node 24
+for npm ≥ 11.5.1, `NODE_AUTH_TOKEN` commented out), so it needs no repository
+secret on that path; the `NPM_TOKEN` fallback in its header is only for the other
+one. Whether the trusted publisher is registered is not visible from the CLI —
+the confirmation is an attestation appearing on the first published version.
+
+Note that both publish steps pass `--access public`, so the first release from
+`main` makes the packages world-readable.
