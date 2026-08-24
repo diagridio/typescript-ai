@@ -10,7 +10,18 @@
  * the workflow API.
  */
 
-export const DEFAULT_PUBSUB_NAME = 'agent-pubsub';
+/**
+ * Component name to fall back to when the caller names no broker.
+ *
+ * `pubsub` is what a Catalyst project's managed broker is called —
+ * `diagrid project create --deploy-managed-pubsub` provisions exactly that
+ * name, and the control plane hard-codes it (`DefaultPubsubName` in
+ * `services/cloudgrid/internal/app/catalyst/dataplane/api.go`).
+ *
+ * Not `agent-pubsub`: that one is part of the dapr-agents set, provisioned
+ * only behind `--enable-agent-infrastructure`. See `DEFAULT_STORE_NAME`.
+ */
+export const DEFAULT_PUBSUB_NAME = 'pubsub';
 
 /** The slice of `DaprClient` this publisher depends on. */
 export interface PubSubClient {

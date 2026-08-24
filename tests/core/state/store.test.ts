@@ -8,7 +8,11 @@ import { DaprStateStore, DEFAULT_STORE_NAME } from '@diagrid/agent-core';
 import { fakeStateClient } from '../../fixtures/mastra-agent';
 
 describe('DaprStateStore', () => {
-  it('defaults to the shared agent-memory component', () => {
+  // Pinned to the literal, not just to the constant: the default has to be the
+  // name Catalyst actually provisions for `--deploy-managed-kv`, or the
+  // quickstart every README recommends points at a component that is not there.
+  it('defaults to the managed kvstore component', () => {
+    expect(DEFAULT_STORE_NAME).toBe('kvstore');
     expect(new DaprStateStore().storeName).toBe(DEFAULT_STORE_NAME);
   });
 

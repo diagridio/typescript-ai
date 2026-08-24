@@ -78,7 +78,7 @@ describe('DaprWorkflowAgentRunner', () => {
 
   it('provides a checkpointer bound to the runner state store', () => {
     const runner = newRunner();
-    expect(runner.checkpointer.storeName).toBe('agent-memory');
+    expect(runner.checkpointer.storeName).toBe('kvstore');
   });
 
   it('removes its signal handlers when the disposer is called', () => {

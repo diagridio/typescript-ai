@@ -9,7 +9,22 @@
  * client, so constructing a runner does not require a sidecar to be up.
  */
 
-export const DEFAULT_STORE_NAME = 'agent-memory';
+/**
+ * Component name to fall back to when the caller names no store.
+ *
+ * `kvstore` is what a Catalyst project's managed key/value store is called —
+ * `diagrid project create --deploy-managed-kv` provisions exactly that name,
+ * and the control plane hard-codes it (`DefaultKVStoreName` in
+ * `services/cloudgrid/internal/app/catalyst/dataplane/api.go`). Defaulting to
+ * it is what makes the documented quickstart need no configuration.
+ *
+ * It is deliberately *not* `agent-memory`. That name belongs to the
+ * dapr-agents convention, and on Catalyst it only exists in projects created
+ * with `--enable-agent-infrastructure` (now `diagrid project update
+ * --enable-agent-infrastructure`, since the flag was dropped from `project
+ * create` in CLI v1.59.0). Those projects pass `storeName` explicitly.
+ */
+export const DEFAULT_STORE_NAME = 'kvstore';
 
 /**
  * The slice of `DaprClient` this store depends on.
@@ -42,7 +57,7 @@ export interface DaprStateStoreOptions {
  * ```ts
  * import { DaprStateStore } from '@diagrid/agent-core';
  *
- * const store = new DaprStateStore({ storeName: 'agent-memory' });
+ * const store = new DaprStateStore({ storeName: 'kvstore' });
  * await store.save('my-key', { messages: ['hello'] });
  * const data = await store.get<{ messages: string[] }>('my-key');
  * await store.close();
