@@ -1,0 +1,15 @@
+{
+  // Declaration-emit config used *only* by tsup's `.d.ts` step.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "declaration": true,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "ignoreDeprecations": "6.0",
+    "rootDir": "src",
+    "paths": {}
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,130 @@
+{
+  "name": "@diagrid/n8n",
+  "version": "0.1.1",
+  "description": "Durable execution of n8n workflow node runs on Dapr Workflows",
+  "keywords": [
+    "dapr",
+    "workflow",
+    "durable",
+    "n8n",
+    "automation",
+    "diagrid"
+  ],
+  "homepage": "https://github.com/diagridio/typescript-ai#readme",
+  "bugs": "https://github.com/diagridio/typescript-ai/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/diagridio/typescript-ai.git",
+    "directory": "packages/n8n"
+  },
+  "license": "BUSL-1.1",
+  "author": "Diagrid Inc.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./register": {
+      "import": {
+        "types": "./dist/preload.d.ts",
+        "default": "./dist/preload.js"
+      },
+      "require": {
+        "types": "./dist/preload.d.cts",
+        "default": "./dist/preload.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": [
+    "./dist/preload.js",
+    "./dist/preload.cjs"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@diagrid/agent-core": "workspace:*",
+    "@dapr/dapr": "3.18.0"
+  },
+  "peerDependencies": {
+    "n8n-core": "*",
+    "n8n-workflow": "*",
+    "n8n-nodes-base": "*",
+    "@n8n/db": "*",
+    "@n8n/di": "*",
+    "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "n8n-core": {
+      "optional": true
+    },
+    "n8n-workflow": {
+      "optional": true
+    },
+    "n8n-nodes-base": {
+      "optional": true
+    },
+    "@n8n/db": {
+      "optional": true
+    },
+    "@n8n/di": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "tsup": "8.5.1",
+    "typescript": "6.0.3",
+    "zod": "4.4.3"
+  },
+  "//peerDependenciesMeta": [
+    "`optional: true` here is a pnpm-install-time workaround, not a real",
+    "statement that this package works without these five peers — it does",
+    "not. Without it, pnpm's autoInstallPeers tries to satisfy the bare `*`",
+    "peer range by fetching the REAL published n8n-nodes-base from npm (a",
+    "different, unrelated version from this workspace's own local n8n",
+    "checkout), which pulls in xlsx via a non-standard URL and trips this",
+    "repo's own blockExoticSubdeps supply-chain policy. `optional: true`",
+    "stops that auto-install attempt; the real, correct versions still come",
+    "from the sibling n8n checkout via scripts/link-n8n-dev-deps.sh."
+  ],
+  "//devDependencies": [
+    "n8n-core/n8n-workflow/n8n-nodes-base/@n8n/db/@n8n/di are real peer",
+    "dependencies (see peerDependencies above) but are deliberately NOT listed",
+    "here as file: devDependencies pointing at the sibling n8n checkout: n8n's",
+    "own packages depend on ~20 further n8n-internal packages via workspace:*",
+    "(@n8n/backend-common, @n8n/config, n8n-workflow, ...), which only resolves",
+    "inside n8n's OWN pnpm workspace. Pointing a file: dependency at them from",
+    "this workspace makes pnpm try (and fail) to resolve those same specifiers",
+    "here, breaking `pnpm install` for the whole repo, not just this package.",
+    "See scripts/link-n8n-dev-deps.sh (in this package) and README.md's",
+    "'Developing against a local n8n checkout' section for how this",
+    "package's node_modules gets real",
+    "n8n type/runtime resolution instead: direct symlinks into",
+    "packages/n8n/node_modules, bypassing pnpm's own dependency graph for",
+    "exactly these five packages, the same way a real n8n install's own",
+    "node_modules is what actually satisfies these peers at runtime."
+  ]
+}

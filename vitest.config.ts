@@ -18,6 +18,7 @@ const resolve = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 const alias = {
   '@diagrid/agent-core': resolve('./packages/core/src/index.ts'),
   '@diagrid/agent-mastra': resolve('./packages/mastra/src/index.ts'),
+  '@diagrid/n8n': resolve('./packages/n8n/src/index.ts'),
 };
 
 /**

@@ -19,3 +19,17 @@ nodeLinker: isolated
 allowBuilds:
   esbuild: true
   protobufjs: true
+
+# @diagrid/n8n peer-depends on n8n's own packages (n8n-core, n8n-workflow,
+# n8n-nodes-base, @n8n/db, @n8n/di) with a bare `*` range — a real n8n
+# install satisfies these; this workspace never does (see
+# packages/n8n/package.json's own comments and
+# packages/n8n/scripts/link-n8n-dev-deps.sh for local dev). With
+# auto-install-peers on (pnpm's own default), pnpm tries to satisfy that
+# bare `*` by fetching the REAL published n8n-nodes-base from npm —
+# unrelated to the local checkout — which pulls in `xlsx` via a
+# non-standard URL and trips blockExoticSubdeps below, failing `pnpm
+# install` for the whole workspace. Neither a top-level `.npmrc` nor
+# `package.json#pnpm` took effect for this setting in pnpm 11.21.0, for
+# reasons not fully understood; this did.
+autoInstallPeers: false

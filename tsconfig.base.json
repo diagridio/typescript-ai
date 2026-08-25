@@ -22,7 +22,8 @@
     // i.e. relative to this file, at the repo root.
     "paths": {
       "@diagrid/agent-core": ["./packages/core/src/index.ts"],
-      "@diagrid/agent-mastra": ["./packages/mastra/src/index.ts"]
+      "@diagrid/agent-mastra": ["./packages/mastra/src/index.ts"],
+      "@diagrid/n8n": ["./packages/n8n/src/index.ts"]
     },
 
     // --- Strictness -------------------------------------------------------
