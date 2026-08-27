@@ -12,6 +12,12 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/coverage/**',
       '.tsbuild/**',
+      // Deliberately plain CommonJS, not TypeScript, and deliberately outside
+      // every tsconfig's `include` — see this file's own doc comment for why
+      // (a test-only node-type fixture, loaded at runtime via a plain
+      // `require()` from a path in an env var, mirroring
+      // n8n-dapr-durable's own un-typechecked test/flaky-node.js).
+      'examples/n8n/fixtures/*.cjs',
     ],
   },
   js.configs.recommended,

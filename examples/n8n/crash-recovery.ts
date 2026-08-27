@@ -34,13 +34,12 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { N8nClient, type WorkflowDefinition } from './n8n-client';
 import { requireSidecar } from './sidecar';
 
 const N8N_BASE_URL = process.env['N8N_BASE_URL'] ?? 'http://localhost:5678';
 const STATE_FILE = join(tmpdir(), 'diagrid-n8n-crash-recovery-state.json');
 const WORKFLOW_NAME = 'diagrid-n8n-example-crash-recovery';
-const OWNER_EMAIL = 'example@diagrid.local';
-const OWNER_PASSWORD = 'Diagrid-Example-1!';
 
 interface DemoState {
   phase: 'triggered';
@@ -62,152 +61,47 @@ function clearState(): void {
   if (existsSync(STATE_FILE)) unlinkSync(STATE_FILE);
 }
 
-/** Minimal fetch wrapper: n8n's REST API, with the session cookie threaded through by hand (no cookie jar dependency for a ~40-line example). */
-class N8nClient {
-  #cookie: string | undefined;
-
-  constructor(private readonly baseUrl: string) {}
-
-  async #request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (this.#cookie) headers['Cookie'] = this.#cookie;
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: { ...headers, ...init.headers },
-    });
-    const setCookie = res.headers.get('set-cookie');
-    if (setCookie) this.#cookie = setCookie.split(';')[0];
-    if (!res.ok) {
-      throw new Error(
-        `${init.method ?? 'GET'} ${path} -> ${res.status} ${await res.text()}`
-      );
-    }
-    const text = await res.text();
-    return text ? (JSON.parse(text) as T) : (undefined as T);
-  }
-
-  async healthy(): Promise<boolean> {
-    try {
-      const res = await fetch(`${this.baseUrl}/healthz`);
-      return res.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  /** Idempotent: n8n's owner setup fails once an owner already exists — that's treated as "already logged in", not an error. */
-  async ensureLoggedIn(): Promise<void> {
-    try {
-      await this.#request('/rest/owner/setup', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: OWNER_EMAIL,
-          firstName: 'Diagrid',
-          lastName: 'Example',
-          password: OWNER_PASSWORD,
-        }),
-      });
-      return;
-    } catch {
-      // Owner already exists — log in instead.
-    }
-    await this.#request('/rest/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        emailOrLdapLoginId: OWNER_EMAIL,
-        password: OWNER_PASSWORD,
-      }),
-    });
-  }
-
-  async findOrCreateDemoWorkflow(): Promise<string> {
-    const list = await this.#request<{
-      data: Array<{ id: string; name: string }>;
-    }>('/rest/workflows');
-    const existing = list.data.find((w) => w.name === WORKFLOW_NAME);
-    if (existing) return existing.id;
-
-    const created = await this.#request<{ data: { id: string } }>(
-      '/rest/workflows',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          name: WORKFLOW_NAME,
-          nodes: [
-            {
-              id: 't1',
-              name: 'Manual Trigger',
-              type: 'n8n-nodes-base.manualTrigger',
-              typeVersion: 1,
-              position: [0, 0],
-              parameters: {},
-            },
-            {
-              id: 'w1',
-              name: 'Wait',
-              type: 'n8n-nodes-base.wait',
-              typeVersion: 1.1,
-              position: [200, 0],
-              // 90s: comfortably over Wait.node.ts's own 65s durable-timer threshold
-              // (below it, Wait uses a plain in-process setTimeout, not
-              // putExecutionToWait — not durable, and not what this demo is about).
-              parameters: {
-                resume: 'timeInterval',
-                amount: 90,
-                unit: 'seconds',
-              },
-            },
-            {
-              id: 'n1',
-              name: 'NoOp',
-              type: 'n8n-nodes-base.noOp',
-              typeVersion: 1,
-              position: [400, 0],
-              parameters: {},
-            },
-          ],
-          connections: {
-            'Manual Trigger': {
-              main: [[{ node: 'Wait', type: 'main', index: 0 }]],
-            },
-            Wait: { main: [[{ node: 'NoOp', type: 'main', index: 0 }]] },
-          },
-          settings: { executionOrder: 'v1' },
-        }),
-      }
-    );
-    return created.data.id;
-  }
-
-  async trigger(workflowId: string): Promise<string> {
-    const result = await this.#request<{ data: { executionId: string } }>(
-      `/rest/workflows/${workflowId}/run`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          triggerToStartFrom: { name: 'Manual Trigger' },
-        }),
-      }
-    );
-    return result.data.executionId;
-  }
-
-  async getExecution(
-    executionId: string
-  ): Promise<{ status: string; finished: boolean; data: string } | undefined> {
-    try {
-      return (
-        await this.#request<{
-          data: { status: string; finished: boolean; data: string };
-        }>(`/rest/executions/${executionId}`)
-      ).data;
-    } catch {
-      return undefined;
-    }
-  }
-}
+/**
+ * Manual Trigger -> Wait (90s, timeInterval) -> NoOp. 90s is comfortably over
+ * `Wait.node.ts`'s own 65s durable-timer threshold (below it, Wait uses a
+ * plain in-process `setTimeout`, not `putExecutionToWait` — not durable, and
+ * not what this demo is about) — see `packages/n8n/README.md`'s "Idempotency
+ * and at-least-once activities" section for what the wait itself proves.
+ */
+const WORKFLOW_DEFINITION: WorkflowDefinition = {
+  name: WORKFLOW_NAME,
+  nodes: [
+    {
+      id: 't1',
+      name: 'Manual Trigger',
+      type: 'n8n-nodes-base.manualTrigger',
+      typeVersion: 1,
+      position: [0, 0],
+      parameters: {},
+    },
+    {
+      id: 'w1',
+      name: 'Wait',
+      type: 'n8n-nodes-base.wait',
+      typeVersion: 1.1,
+      position: [200, 0],
+      parameters: { resume: 'timeInterval', amount: 90, unit: 'seconds' },
+    },
+    {
+      id: 'n1',
+      name: 'NoOp',
+      type: 'n8n-nodes-base.noOp',
+      typeVersion: 1,
+      position: [400, 0],
+      parameters: {},
+    },
+  ],
+  connections: {
+    'Manual Trigger': { main: [[{ node: 'Wait', type: 'main', index: 0 }]] },
+    Wait: { main: [[{ node: 'NoOp', type: 'main', index: 0 }]] },
+  },
+  settings: { executionOrder: 'v1' },
+};
 
 async function main(): Promise<void> {
   const mode = requireSidecar('diagrid-example-n8n');
@@ -218,19 +112,28 @@ async function main(): Promise<void> {
     console.error(
       `n8n is not reachable at ${N8N_BASE_URL}. Start it, patched, in a separate terminal first — see README.md:\n\n` +
         `  DAPR_HTTP_PORT=3610 DAPR_GRPC_PORT=50310 \\\n` +
-        `  NODE_OPTIONS="--require /absolute/path/to/packages/n8n/dist/preload.js" \\\n` +
+        `  NODE_OPTIONS="--require /absolute/path/to/packages/n8n/dist/preload.cjs" \\\n` +
         `    n8n start`
     );
     process.exit(1);
   }
+
+  // Unconditional, not just on the first-run branch: a real bug, caught only
+  // by actually running the second invocation as its own fresh process — the
+  // session cookie lives on this script's own N8nClient instance, so a
+  // second run with no login call sent every /rest/executions/:id request
+  // unauthenticated. n8n's own 401 was then swallowed by getExecution()'s
+  // catch-and-return-undefined (see n8n-client.ts), which surfaced here as a
+  // misleading "Execution N not found — was n8n's database reset?" instead
+  // of the real cause.
+  await client.ensureLoggedIn();
 
   const existing = loadState();
 
   if (!existing) {
     // First run: create the demo workflow if needed, trigger it, and hand
     // off to the operator for the actual kill-and-restart step.
-    await client.ensureLoggedIn();
-    const workflowId = await client.findOrCreateDemoWorkflow();
+    const workflowId = await client.findOrCreateWorkflow(WORKFLOW_DEFINITION);
     const executionId = await client.trigger(workflowId);
     saveState({
       phase: 'triggered',
@@ -244,8 +147,9 @@ async function main(): Promise<void> {
     );
     console.log(
       `\nIt will reach the Wait node and enter a genuinely durable wait within a\n` +
-        `few seconds — confirm with a direct redis check if you like:\n\n` +
-        `  redis-cli --scan --pattern "*n8n-dapr-durable-phase4*n8n-dapr-durable:${executionId}:*"\n\n` +
+        `few seconds — confirm with a direct redis check if you like (adjust the\n` +
+        `app-id prefix to whatever --app-id the sidecar was started with):\n\n` +
+        `  redis-cli --scan --pattern "*diagrid.n8n:${executionId}:*"\n\n` +
         `Once it's waiting:\n` +
         `  1. SIGKILL the n8n process (the one you started with --require).\n` +
         `  2. Restart it the same way, pointed at the SAME sidecar ports.\n` +

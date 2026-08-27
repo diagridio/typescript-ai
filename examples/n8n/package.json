@@ -6,7 +6,6 @@
   "type": "module",
   "scripts": {
     "crash-recovery": "tsx crash-recovery.ts",
-    "setup": "tsx setup-workflow.ts",
     "regression": "tsx regression.ts"
   },
   "dependencies": {
