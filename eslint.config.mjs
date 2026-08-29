@@ -18,6 +18,10 @@ export default tseslint.config(
       // `require()` from a path in an env var, mirroring
       // n8n-dapr-durable's own un-typechecked test/flaky-node.js).
       'examples/n8n/fixtures/*.cjs',
+      // Same reasoning: a --require'd Node compatibility shim for
+      // n8n-crash-recovery.integration.test.ts, deliberately plain
+      // CommonJS and outside tests/tsconfig.json's own project.
+      'tests/e2e/n8n-helpers/*.cjs',
     ],
   },
   js.configs.recommended,
