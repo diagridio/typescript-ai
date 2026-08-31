@@ -252,11 +252,20 @@ export function createModelInvoker(agent: MastraAgentLike) {
   // between iterations of a turn — re-reading them was a round trip per model
   // call for an identical answer.
   //
+  // This memoises *this* function's read, and nothing more. Mastra's own
+  // `generate()` calls `agent.listTools()` again on every iteration — measured
+  // at two further calls per invocation, from `getMcpServerGuidance` and
+  // `listAssignedTools`/`convertTools` — which this cache neither sees nor
+  // prevents. Against a real `Agent`: 3 reads on the first `invokeModel`, 2 on
+  // each one after. So the saving is that the bridge stops compounding the
+  // problem, not that a turn costs one round trip.
+  //
   // Only a *fulfilled* read is cached. `??=` alone caches the rejection too, and
   // this invoker outlives the turn (the runner holds one per agent), so a single
   // blip on the first `invokeModel` of the runner's lifetime would fail every
-  // later turn on that runner — and silently defeat the activity retry above,
-  // since all three attempts would await the same already-settled rejection.
+  // later turn on that runner — and silently defeat the retry in
+  // `callActivityWithRetry` (`@diagrid/agent-core`, `agent/workflow.ts`), since
+  // all three attempts would await the same already-settled rejection.
   let clientToolsPromise: Promise<Record<string, MastraTool>> | undefined;
 
   return async (input: InvokeModelInput): Promise<InvokeModelOutput> => {

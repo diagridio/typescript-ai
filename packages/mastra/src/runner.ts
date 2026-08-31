@@ -379,8 +379,13 @@ export class DaprWorkflowAgentRunner extends BaseWorkflowRunner {
    *
    * The order matters, and it is the opposite of what it looks like. Awaiting
    * `super.start()` first is not safe: the SDK's worker does not await its own
-   * run loop (`task-hub-grpc-worker.js` comments the call "do not await so it
-   * runs in the background"), so the sidecar can deliver a *pending* work item
+   * run loop — it comments the call "do not await so it runs in the background"
+   * and sets `_isRunning` immediately. Read that in `@dapr/dapr`'s *vendored*
+   * copy, `workflow/internal/durabletask/worker/task-hub-grpc-worker.js`;
+   * `WorkflowRuntime.js` reaches it via a relative `require`, so the separately
+   * installed `@dapr/durabletask-js` package of the same name is never loaded
+   * and its copy of this file behaves differently. The sidecar can therefore
+   * deliver a *pending* work item
    * — from a crashed run, a rolling restart, another replica — the moment the
    * gRPC stream opens, which is before `start()` resolves. In that window
    * `#toolInvokers` is still the empty field initialiser, so `invokeToolActivity`

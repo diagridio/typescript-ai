@@ -69,14 +69,20 @@ class TestableRunner extends DaprWorkflowAgentRunner {
 /**
  * A runner that fails the instant the base class begins starting the runtime.
  *
- * `registerWorkflowComponents` is the first thing `super.start()` does that a
- * subclass can see, and it runs before the gRPC channel is opened — so throwing
+ * `registerWorkflowComponents` runs before the gRPC channel is constructed — the
+ * channel is built inside `workflowRuntime.start()`, one step later — so throwing
  * here is a sidecar-free tripwire for "did the base class start at all?".
+ * `setupTelemetry()` is an earlier overridable hook and would work too; this one
+ * is chosen because it is the hook the adapter actually implements.
  */
 class TripwireRunner extends DaprWorkflowAgentRunner {
   static readonly SENTINEL = 'BASE_START_REACHED';
 
+  /** Set before throwing, so "did the base class run?" is asserted directly. */
+  reached = false;
+
   protected override registerWorkflowComponents(): void {
+    this.reached = true;
     throw new Error(TripwireRunner.SENTINEL);
   }
 }
@@ -224,5 +230,12 @@ describe('start() ordering', () => {
     });
 
     await expect(runner.start()).rejects.toThrow('MCP client unreachable');
+
+    // Asserted directly, not merely inferred from which error won the race. If
+    // the two phases were ever made concurrent rather than sequential, both
+    // would reject and the message check alone could still pass by whichever
+    // settled first — which is the vacuous-pass failure mode this whole commit
+    // is about.
+    expect(runner.reached).toBe(false);
   });
 });

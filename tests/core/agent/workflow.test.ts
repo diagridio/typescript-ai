@@ -18,6 +18,7 @@ import type { WorkflowContext } from '@diagrid/agent-core';
 import {
   ACTIVITY_INVOKE_MODEL,
   ACTIVITY_INVOKE_TOOL,
+  ACTIVITY_RETRY_BASE_DELAY_MS,
   agentWorkflow,
   invokeModelActivity,
   invokeToolActivity,
@@ -103,6 +104,29 @@ async function runWorkflow(
   }
 
   return { output: step.value, calls };
+}
+
+/**
+ * Drive a run that is expected to reject, and hand back what it did first.
+ *
+ * A rejecting run has no return value to read `calls` from, and threading the
+ * out-param through `runWorkflow` by hand is a parameter a future test can
+ * forget — silently, because an assertion about what did *not* happen is
+ * satisfied by an array nothing ever wrote to. This is the sanctioned path;
+ * `runWorkflow`'s third argument exists for it and should not be passed
+ * directly.
+ */
+async function runWorkflowExpectingRejection(
+  input: Record<string, unknown>,
+  results: readonly unknown[]
+): Promise<{ error: unknown; calls: ActivityCall[] }> {
+  const calls: ActivityCall[] = [];
+  try {
+    await runWorkflow(input, results, calls);
+  } catch (error) {
+    return { error, calls };
+  }
+  throw new Error('expected the workflow to reject, but it completed');
 }
 
 const assistantText = (content: string) => ({
@@ -224,7 +248,9 @@ describe('agentWorkflow', () => {
         .map((c) => (c.input as { toolCallId: string }).toolCallId)
     ).toEqual(['call-1', 'call-2']);
 
-    // And both results reach the model, correlated to the right call.
+    // And both results reach the model, correlated to the right call. This one
+    // pins *correlation*, not order — the driver consumes its script by index,
+    // so it reads the same either way round. Reordering is caught above.
     expect(output.messages.slice(-3, -1)).toEqual([
       { role: 'tool', content: '{"hits":2}', toolCallId: 'call-1' },
       { role: 'tool', content: '{"body":"Y!"}', toolCallId: 'call-2' },
@@ -310,15 +336,19 @@ describe('agentWorkflow', () => {
     // Activity output comes back from the state store, i.e. from outside the
     // process. A schema change that would mis-read an in-flight workflow has
     // to fail here rather than corrupt the transcript.
-    const calls: ActivityCall[] = [];
-    await expect(
-      runWorkflow({ prompt: 'go', threadId: 't1' }, [{ nonsense: true }], calls)
-    ).rejects.toThrow(z.ZodError);
+    const { error, calls } = await runWorkflowExpectingRejection(
+      { prompt: 'go', threadId: 't1' },
+      [{ nonsense: true }]
+    );
+    expect(error).toBeInstanceOf(z.ZodError);
 
-    // One dispatch, no timers. This is the property that separates
-    // deterministic-fail-fast from retry-with-backoff: moving the parse back
-    // inside the retry region still throws, but it throws after burning two
-    // timers, and only this assertion can tell the two apart.
+    // One dispatch, no timers — the fail-fast property, pinned directly.
+    //
+    // The `ZodError` check above is what actually catches the parse moving back
+    // inside the retry region: the retry region re-yields, the driver runs out
+    // of scripted results, and a plain `Error` surfaces instead of a `ZodError`.
+    // These two assertions do not detect that mutation on their own — they state
+    // the invariant rather than relying on that side effect of the harness.
     expect(calls.filter((c) => c.name === 'timer')).toEqual([]);
     expect(calls.filter((c) => c.name === ACTIVITY_INVOKE_MODEL)).toHaveLength(
       1
@@ -578,17 +608,29 @@ describe('tool retry', () => {
     expect(toolAttempts).toBe(3);
     expect(modelCalls).toBe(2);
     // Backoff between attempts, as durable timers — asserted by *value*, not
-    // just by count. The clock is fixed at 00:00:00.000Z, so 500ms then 1000ms
-    // of exponential backoff lands on exactly these two instants. Counting
-    // alone survives both determinism corruptions the comment at :202 warns
+    // just by count. Counting alone survives both determinism corruptions that
+    // `callActivityWithRetry` in `packages/core/src/agent/workflow.ts` warns
     // about: swapping `ctx.getCurrentUtcDateTime()` for `Date.now()` (which
     // makes replay diverge) and forcing `delayMs` to 0 (which removes the
     // backoff while keeping the timers). Neither is visible to lint.
+    //
+    // Derived from the exported constant rather than hardcoded, so tuning the
+    // base delay does not require recomputing two ISO strings by hand.
+    //
+    // It does *not* pin the growth curve. With ACTIVITY_MAX_ATTEMPTS = 3 only
+    // two timers ever fire, and `BASE * 2 ** (n - 1)` and `BASE * n` agree on
+    // both of them — they first diverge at attempt 3, which never happens.
+    // Distinguishing them would need a fourth attempt, so this asserts the two
+    // delays that exist and claims nothing about the formula behind them.
+    const base = new Date('2026-08-12T00:00:00.000Z').getTime();
     expect(
       calls
         .filter((c) => c.name === 'timer')
         .map((c) => (c.input as Date).toISOString())
-    ).toEqual(['2026-08-12T00:00:00.500Z', '2026-08-12T00:00:01.000Z']);
+    ).toEqual([
+      new Date(base + ACTIVITY_RETRY_BASE_DELAY_MS).toISOString(),
+      new Date(base + ACTIVITY_RETRY_BASE_DELAY_MS * 2).toISOString(),
+    ]);
   });
 
   it('reports the failure to the model once retries are exhausted', async () => {

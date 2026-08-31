@@ -87,8 +87,9 @@ pnpm workspace, `nodeLinker: isolated`, members `packages/*` and `examples/*`.
 | `npm-release.yaml` | `workflow_dispatch`, and refused off `main`          |
 
 - **A stacked PR now gets the e2e lane too.** `e2e-ollama.yaml` used to carry
-  `pull_request: branches: [main]` — the filter #7 removed from `build.yaml` and
-  `deps-check.yaml` but not from this one — and because it matches on the _base_
+  `pull_request: branches: [main]` — the filter #7 removed from `build.yaml`,
+  `deps-check.yaml` and `security.yaml` but not from this one — and because it
+  matches on the _base_
   branch, PR #3 (base `main`) ran it while PR #8 (base the feature branch) did
   not. The filter is gone; all four PR lanes are now unfiltered. It is the only
   lane that drives a real agent turn through a real sidecar, and the bug class it
