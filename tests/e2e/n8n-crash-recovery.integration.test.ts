@@ -8,6 +8,12 @@
  * zero manual trigger, and real `expect()` assertions on the result — not a
  * script that prints things for a human to read.
  *
+ * Single-node-graph crash recovery. See
+ * `n8n-crash-recovery-subworkflow.integration.test.ts` (same directory) for
+ * the harder, sibling scenario: killing while a *sub-workflow's child* is
+ * mid-activity, and proving no duplicate child orchestration was created.
+ * Shared setup lives in `n8n-helpers/process-harness.ts`.
+ *
  * ## Why this needs its own detection, unlike every other integration test here
  *
  * `mastra-examples.integration.test.ts` and `mastra-ollama.integration.test.ts`
@@ -34,16 +40,6 @@
  * `packages/n8n/README.md`'s "Developing against a local n8n checkout"
  * section.
  *
- * ## Availability
- *
- * Detected structurally, reusing the existing dev-setup convention rather
- * than inventing a new env var: `scripts/link-n8n-dev-deps.sh` symlinks a
- * real, built n8n checkout's packages into `packages/n8n/node_modules`. This
- * file resolves that symlink back to the checkout root (two directories up
- * from `n8n-core`'s real path) to find `packages/cli/bin/n8n`, and checks
- * `packages/cli/dist` exists as a proxy for "actually built", not just
- * cloned. `packages/n8n/dist/preload.cjs` must exist too (`pnpm build`).
- *
  * ## The kill pattern — no timing guesswork
  *
  * `DEMO.md`'s own history recorded a fixed sleep-then-kill as flaky; the fix
@@ -58,79 +54,30 @@
  */
 
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
-import {
-  existsSync,
-  mkdtempSync,
-  openSync,
-  readFileSync,
-  realpathSync,
-} from 'node:fs';
+import { mkdtempSync, openSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import {
+  N8N_CHECKOUT,
+  PRELOAD_BUILT,
+  HAS_DAPR,
+  BYPASS_SHIM,
+  PRELOAD_CJS,
+  RESOURCES_DIR,
+  ledgerKeyExists,
+  pollUntil,
+  readMarkerLog,
+  readTextSafe,
+  waitForLogLine,
+} from './n8n-helpers/process-harness.js';
 import {
   N8nClient,
   type WorkflowDefinition,
 } from './n8n-helpers/n8n-client.js';
 
-const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const PACKAGES_N8N_DIR = join(REPO_ROOT, 'packages', 'n8n');
-const PRELOAD_CJS = join(PACKAGES_N8N_DIR, 'dist', 'preload.cjs');
-const BYPASS_SHIM = join(
-  REPO_ROOT,
-  'tests',
-  'e2e',
-  'n8n-helpers',
-  'node-version-bypass.cjs'
-);
-const RESOURCES_DIR = join(REPO_ROOT, 'examples', 'n8n', 'resources');
-
-/** Same probe `mastra-examples.integration.test.ts` uses: is the CLI itself usable? */
-const HAS_DAPR = (() => {
-  try {
-    execFileSync('dapr', ['--version'], { stdio: 'ignore', timeout: 15_000 });
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-interface N8nCheckout {
-  readonly root: string;
-  readonly n8nBin: string;
-}
-
-/**
- * Resolves `scripts/link-n8n-dev-deps.sh`'s own symlink back to a real n8n
- * checkout root, rather than requiring a separate, new env var. Returns
- * `undefined` for any reason the checkout isn't usable — not found, not a
- * real symlink, or present but never built.
- */
-function resolveN8nCheckout(): N8nCheckout | undefined {
-  const n8nCoreLink = join(PACKAGES_N8N_DIR, 'node_modules', 'n8n-core');
-  if (!existsSync(n8nCoreLink)) return undefined;
-
-  let resolvedCore: string;
-  try {
-    resolvedCore = realpathSync(n8nCoreLink);
-  } catch {
-    return undefined;
-  }
-
-  // resolvedCore is <checkout>/packages/core
-  const root = dirname(dirname(resolvedCore));
-  const n8nBin = join(root, 'packages', 'cli', 'bin', 'n8n');
-  const cliDist = join(root, 'packages', 'cli', 'dist');
-  if (!existsSync(n8nBin) || !existsSync(cliDist)) return undefined;
-
-  return { root, n8nBin };
-}
-
-const PRELOAD_BUILT = existsSync(PRELOAD_CJS);
-const N8N_CHECKOUT = resolveN8nCheckout();
 const CAN_RUN = HAS_DAPR && N8N_CHECKOUT !== undefined && PRELOAD_BUILT;
 
 if (!CAN_RUN) {
@@ -171,85 +118,6 @@ const DAPR_GRPC_PORT = 50411;
  * proof's 20s was for a human to react to.
  */
 const DELAY_MS = 8_000;
-
-function readTextSafe(path: string): string {
-  return existsSync(path) ? readFileSync(path, 'utf8') : '';
-}
-
-/**
- * Poll a growing log file for a line, rather than sleeping a fixed duration
- * — see this file's own top comment for why a fixed sleep was rejected.
- */
-async function waitForLogLine(
-  logPath: string,
-  pattern: string,
-  timeoutMs: number,
-  intervalMs = 50
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    if (readTextSafe(logPath).includes(pattern)) return;
-    if (Date.now() > deadline) {
-      throw new Error(
-        `timed out after ${timeoutMs}ms waiting for ${logPath} to contain ${JSON.stringify(pattern)}. ` +
-          `Last 2000 chars:\n${readTextSafe(logPath).slice(-2000)}`
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-}
-
-/** Bounded polling for an async condition — never a single check-and-hope. */
-async function pollUntil<T>(
-  fn: () => Promise<T | undefined>,
-  timeoutMs: number,
-  intervalMs = 1_000
-): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const result = await fn();
-    if (result !== undefined) return result;
-    if (Date.now() > deadline) {
-      throw new Error(`condition not met within ${timeoutMs}ms`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-}
-
-interface MarkerEntry {
-  readonly nodeName: string;
-  readonly attempt: number;
-  readonly instanceId: string;
-  readonly pid: number;
-  readonly status: string;
-}
-
-function readMarkerLog(path: string): MarkerEntry[] {
-  return readTextSafe(path)
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as MarkerEntry);
-}
-
-/**
- * Existence check via Dapr's own HTTP state API — bypasses this package's
- * code entirely.
- *
- * `res.ok` alone is not existence: confirmed directly (this returned `true`
- * for a key that provably did not exist yet, before this fix) — Dapr's HTTP
- * state GET returns 200 with an EMPTY body for a missing key, not 404. Same
- * behavior `@diagrid/agent-core`'s own `DaprStateStore.get()` doc comment
- * already documents ("Dapr returns an empty string (HTTP)... for a key that
- * does not exist") — this helper just hadn't applied it yet.
- */
-async function ledgerKeyExists(key: string): Promise<boolean> {
-  const res = await fetch(
-    `http://localhost:${DAPR_HTTP_PORT}/v1.0/state/kvstore/${encodeURIComponent(key)}`
-  );
-  if (!res.ok) return false;
-  const text = await res.text();
-  return text.length > 0;
-}
 
 const WORKFLOW_NAME = 'diagrid-n8n-it-crash-recovery';
 
@@ -447,9 +315,12 @@ describe.skipIf(!CAN_RUN)('n8n crash recovery (e2e)', () => {
     // entry yet, and the marker log (written only on a real, completed
     // execute() call — see activity.ts's own doc comment) has exactly the
     // two nodes that finished before the kill.
-    expect(await ledgerKeyExists(`diagrid.n8n:${executionId}:Set C:0:1`)).toBe(
-      false
-    );
+    expect(
+      await ledgerKeyExists(
+        DAPR_HTTP_PORT,
+        `diagrid.n8n:${executionId}:Set C:0:1`
+      )
+    ).toBe(false);
     const preKillMarkers = readMarkerLog(markerFile);
     expect(preKillMarkers.map((m) => m.nodeName)).toEqual(['Set A', 'Set B']);
     expect(preKillMarkers.every((m) => m.pid === pidBeforeKill)).toBe(true);
@@ -498,7 +369,10 @@ describe.skipIf(!CAN_RUN)('n8n crash recovery (e2e)', () => {
     // produced, no more.
     for (const node of ['Set A', 'Set B', 'Set C']) {
       expect(
-        await ledgerKeyExists(`diagrid.n8n:${executionId}:${node}:0:1`),
+        await ledgerKeyExists(
+          DAPR_HTTP_PORT,
+          `diagrid.n8n:${executionId}:${node}:0:1`
+        ),
         `expected a ledger entry for ${node}`
       ).toBe(true);
     }
