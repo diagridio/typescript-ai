@@ -82,20 +82,20 @@ pnpm workspace, `nodeLinker: isolated`, members `packages/*` and `examples/*`.
 | `build.yaml`       | every PR (no branch filter), push to `main`          |
 | `deps-check.yaml`  | every PR (no branch filter), push to `main`          |
 | `security.yaml`    | every PR, push to `main`, weekly Mon 06:00 UTC       |
-| `e2e-ollama.yaml`  | **PRs into `main` only**, nightly 04:00 UTC          |
+| `e2e-ollama.yaml`  | every PR (no branch filter), nightly 04:00 UTC       |
 | `integration.yaml` | nightly 03:00 UTC and `workflow_dispatch` — never PR |
 | `npm-release.yaml` | `workflow_dispatch`, and refused off `main`          |
 
-- **A PR stacked on `feat/scaffold-mastra-adapter` gets no e2e lane.**
-  `e2e-ollama.yaml` still carries `pull_request: branches: [main]`, the filter #7
-  removed from `build.yaml` and `deps-check.yaml` but not from this one. Observed
-  directly: PR #3 (base `main`) ran `e2e-ollama`; PR #8 (base the feature branch)
-  did not. It is the only lane that drives a real agent turn through a real
-  sidecar, and the bug class it exists to catch — a workflow reported COMPLETED
-  without running a single activity — is invisible to the unit suite, which
-  drives the orchestrator directly and so bypasses Dapr's dispatch entirely.
-  Dispatch it by hand, or run the Ollama suite locally, before calling a runtime
-  change green.
+- **A stacked PR now gets the e2e lane too.** `e2e-ollama.yaml` used to carry
+  `pull_request: branches: [main]` — the filter #7 removed from `build.yaml` and
+  `deps-check.yaml` but not from this one — and because it matches on the _base_
+  branch, PR #3 (base `main`) ran it while PR #8 (base the feature branch) did
+  not. The filter is gone; all four PR lanes are now unfiltered. It is the only
+  lane that drives a real agent turn through a real sidecar, and the bug class it
+  exists to catch — a workflow reported COMPLETED without running a single
+  activity — is invisible to the unit suite, which drives the orchestrator
+  directly and so bypasses Dapr's dispatch entirely. It costs ~20 minutes against
+  ~2 for the rest of the gate, so expect a stacked PR to sit amber for a while.
 - `codeql` reporting **`skipping`** is correct, not a failure: it is gated on
   `github.event.repository.private == false` because code scanning needs Advanced
   Security. It switches itself on when the repo goes public.

@@ -23,9 +23,13 @@ name: E2E Tests (Ollama)
 # rather than skipping the block and reporting green.
 
 on:
+  # No branch filter, deliberately — the same reasoning as `build.yaml`, which
+  # #7 applied there and to `deps-check.yaml` and `security.yaml` but not here.
+  # Because the filter matches on the *base* branch, `branches: [main]` gave the
+  # e2e lane to PRs into `main` and nothing to PRs stacked on a feature branch —
+  # and stacking onto `feat/scaffold-mastra-adapter` is this repo's normal case,
+  # not the exception. #8 got no e2e at all.
   pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
   schedule:
     - cron: "0 4 * * *" # nightly at 04:00 UTC
   workflow_dispatch:

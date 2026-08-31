@@ -164,6 +164,47 @@ describe('createModelInvoker', () => {
     expect(output.requiresToolCalls).toBe(true);
   });
 
+  it('does not cache a failed listTools() forever', async () => {
+    // `listTools()` may be backed by an MCP client, so it can fail transiently.
+    // The invoker memoises it — correctly, it is one round trip per turn instead
+    // of one per iteration — but memoising the *rejection* turns a blip on the
+    // first call of a runner's lifetime into a permanent outage for that runner,
+    // because the invoker is cached per runner and outlives the turn. It also
+    // silently defeats the activity retry: all three attempts would await the
+    // same already-settled rejection, spending two backoff timers on nothing.
+    const { model } = mockModel([{ type: 'text', text: 'done' }]);
+    let attempts = 0;
+    const agent = {
+      name: 'flaky-tools',
+      generate: (...args: unknown[]) =>
+        (
+          agentWith(model) as unknown as {
+            generate: (...a: unknown[]) => unknown;
+          }
+        ).generate(...args),
+      listTools: () => {
+        attempts += 1;
+        return attempts === 1
+          ? Promise.reject(new Error('MCP client unreachable (transient)'))
+          : Promise.resolve({});
+      },
+    } as unknown as Parameters<typeof createModelInvoker>[0];
+
+    const invoke = createModelInvoker(agent);
+    const input = {
+      messages: [{ role: 'user' as const, content: 'hi' }],
+      iteration: 0,
+      threadId: 't1',
+    };
+
+    await expect(invoke(input)).rejects.toThrow('MCP client unreachable');
+
+    // The next call retries the read rather than replaying the rejection.
+    const output = await invoke(input);
+    expect(output.message.content).toBe('done');
+    expect(attempts).toBe(2);
+  });
+
   it('unwraps the payload of a tool call', async () => {
     // Mastra nests these under `payload`, not flat. Reading them flat yields an
     // empty tool name, which the workflow then reports as "Unknown tool".

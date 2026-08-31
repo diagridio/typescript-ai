@@ -251,10 +251,21 @@ export function createModelInvoker(agent: MastraAgentLike) {
   // remote (an MCP client), and an agent's tool definitions do not change
   // between iterations of a turn — re-reading them was a round trip per model
   // call for an identical answer.
+  //
+  // Only a *fulfilled* read is cached. `??=` alone caches the rejection too, and
+  // this invoker outlives the turn (the runner holds one per agent), so a single
+  // blip on the first `invokeModel` of the runner's lifetime would fail every
+  // later turn on that runner — and silently defeat the activity retry above,
+  // since all three attempts would await the same already-settled rejection.
   let clientToolsPromise: Promise<Record<string, MastraTool>> | undefined;
 
   return async (input: InvokeModelInput): Promise<InvokeModelOutput> => {
-    clientToolsPromise ??= definitionOnlyTools(agent);
+    clientToolsPromise ??= definitionOnlyTools(agent).catch(
+      (error: unknown) => {
+        clientToolsPromise = undefined;
+        throw error;
+      }
+    );
     const clientTools = await clientToolsPromise;
 
     // The whole transcript goes in as messages, in one place.

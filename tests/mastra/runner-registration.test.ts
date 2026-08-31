@@ -31,6 +31,7 @@ import {
   DaprWorkflowAgentRunner,
   type InvokeModelInput,
   type InvokeModelOutput,
+  type MastraAgentLike,
 } from '@diagrid/agent-mastra';
 
 import { fakeMastraAgent } from '../fixtures/mastra-agent';
@@ -62,6 +63,21 @@ function fakeRuntime(): {
 class TestableRunner extends DaprWorkflowAgentRunner {
   register(runtime: WorkflowRuntime): void {
     this.registerWorkflowComponents(runtime);
+  }
+}
+
+/**
+ * A runner that fails the instant the base class begins starting the runtime.
+ *
+ * `registerWorkflowComponents` is the first thing `super.start()` does that a
+ * subclass can see, and it runs before the gRPC channel is opened — so throwing
+ * here is a sidecar-free tripwire for "did the base class start at all?".
+ */
+class TripwireRunner extends DaprWorkflowAgentRunner {
+  static readonly SENTINEL = 'BASE_START_REACHED';
+
+  protected override registerWorkflowComponents(): void {
+    throw new Error(TripwireRunner.SENTINEL);
   }
 }
 
@@ -178,5 +194,35 @@ describe('registerWorkflowComponents', () => {
       toolCallId: 'call-1',
       error: expect.stringContaining('searchDocs'),
     });
+  });
+});
+
+describe('start() ordering', () => {
+  it('loads tool invokers before it starts the Dapr runtime', async () => {
+    // Ordering, not politeness. The SDK's worker does not await its own run
+    // loop, so the sidecar can deliver a *pending* work item — from a crashed
+    // run, a rolling restart, another replica — as soon as the gRPC stream
+    // opens, which is before `start()` resolves. Any tool call arriving while
+    // `#toolInvokers` is still the empty field initialiser is answered
+    // `Unknown tool` and checkpointed as a **success**: not retried, not
+    // recoverable. Loading the invokers first is what closes that window.
+    //
+    // Asserted through a `listTools()` that throws, because that is the one
+    // signal that distinguishes the two orderings without a sidecar. Invokers
+    // first: this rejects with the tools error and the base class never runs.
+    // Runtime first: the base class runs, and the tripwire fires instead.
+    //
+    // `listTools()` is read structurally off the agent rather than declared on
+    // `MastraAgentLike` (see `readTools`), so the cast is what the production
+    // path does too.
+    const runner = new TripwireRunner({
+      agent: {
+        ...fakeMastraAgent(),
+        listTools: () => Promise.reject(new Error('MCP client unreachable')),
+      } as unknown as MastraAgentLike,
+      name: 'support-agent',
+    });
+
+    await expect(runner.start()).rejects.toThrow('MCP client unreachable');
   });
 });

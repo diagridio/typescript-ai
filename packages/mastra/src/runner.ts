@@ -372,28 +372,30 @@ export class DaprWorkflowAgentRunner extends BaseWorkflowRunner {
   }
 
   /**
-   * Start the runtime, then register one invoker per Mastra tool.
+   * Register one invoker per Mastra tool, then start the runtime.
    *
    * Split from {@link registerWorkflowComponents} because that hook is
-   * synchronous by Dapr's contract while `agent.listTools()` is async. Ordering
-   * is safe: `super.start()` has already registered the workflow and its
-   * activities, and nothing can schedule a workflow until this returns.
+   * synchronous by Dapr's contract while `agent.listTools()` is async.
+   *
+   * The order matters, and it is the opposite of what it looks like. Awaiting
+   * `super.start()` first is not safe: the SDK's worker does not await its own
+   * run loop (`task-hub-grpc-worker.js` comments the call "do not await so it
+   * runs in the background"), so the sidecar can deliver a *pending* work item
+   * — from a crashed run, a rolling restart, another replica — the moment the
+   * gRPC stream opens, which is before `start()` resolves. In that window
+   * `#toolInvokers` is still the empty field initialiser, so `invokeToolActivity`
+   * takes its `!invoker` branch and checkpoints `Unknown tool "<name>"` as a
+   * *successful* activity: not retried, not recoverable. Measured at ~10-15ms on
+   * loopback, which a `listTools()` backed by an unreachable MCP client exceeds
+   * comfortably.
+   *
+   * Loading the invokers first closes the window entirely, and it is why there
+   * is no cleanup path here: nothing has been started yet, so a `listTools()`
+   * failure just propagates and the runner never comes up.
    */
   override async start(): Promise<void> {
+    this.#toolInvokers = await createToolInvokers(this.agent);
     await super.start();
-
-    try {
-      this.#toolInvokers = await createToolInvokers(this.agent);
-    } catch (error) {
-      // Reading tools can fail — they may come from an MCP client that is
-      // unreachable. Without this, `start()` rejects *after* the base class has
-      // already registered and started the Dapr runtime, leaving a live worker
-      // with an empty invoker map: every tool call then returns "Unknown tool"
-      // as a checkpointed success, burning iterations at full model-call cost,
-      // on a runner the caller believes never started.
-      await super.shutdown();
-      throw error;
-    }
   }
 
   /** Release the checkpointer alongside the base runner's resources. */

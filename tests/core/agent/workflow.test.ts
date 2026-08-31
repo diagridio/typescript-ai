@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import type { WorkflowContext } from '@diagrid/agent-core';
 import {
@@ -45,12 +46,15 @@ const TEST_ACTIVITIES = {
 
 async function runWorkflow(
   input: Record<string, unknown>,
-  results: readonly unknown[]
+  results: readonly unknown[],
+  // Pass your own array to inspect the calls of a run that *rejects* — the
+  // return value is unavailable then, and "how far did it get" is exactly the
+  // question a failure test needs to answer.
+  calls: ActivityCall[] = []
 ): Promise<{ output: AgentWorkflowOutput; calls: ActivityCall[] }> {
   // `activityNames` is required on the scheduled input, so default it here
   // rather than in every case. A test that cares passes its own.
   const scheduled = { activityNames: TEST_ACTIVITIES, ...input };
-  const calls: ActivityCall[] = [];
   const ctx = {
     callActivity: (activity: unknown, activityInput?: unknown) => {
       calls.push({ name: String(activity), input: activityInput });
@@ -115,6 +119,14 @@ const assistantToolCall = (id: string, name: string, args: string) => ({
   requiresToolCalls: true,
 });
 
+/** One model turn asking for several tools at once — the fan-out shape. */
+const assistantToolCalls = (
+  ...toolCalls: readonly { id: string; name: string; args: string }[]
+) => ({
+  message: { role: 'assistant', content: '', toolCalls },
+  requiresToolCalls: true,
+});
+
 describe('agentWorkflow', () => {
   it('completes on the first turn when the model needs no tools', async () => {
     const { output, calls } = await runWorkflow(
@@ -173,6 +185,52 @@ describe('agentWorkflow', () => {
       content: '{"hits":2}',
       toolCallId: 'call-1',
     });
+  });
+
+  it('runs every tool of a multi-call turn, in the order the model asked', async () => {
+    // The fan-out branch. Every other fixture in this file requests exactly one
+    // tool, so the `for (const call of toolCalls)` loop has only ever been
+    // executed with a single element — which cannot detect a reordering, and
+    // leaves the `ctx.whenAll` TODO with nothing to regress against when
+    // somebody takes it.
+    const { output, calls } = await runWorkflow(
+      { prompt: 'compare X and Y', threadId: 't1' },
+      [
+        assistantToolCalls(
+          { id: 'call-1', name: 'searchDocs', args: '{"query":"X"}' },
+          { id: 'call-2', name: 'fetchPage', args: '{"url":"Y"}' }
+        ),
+        { toolCallId: 'call-1', result: '{"hits":2}' },
+        { toolCallId: 'call-2', result: '{"body":"Y!"}' },
+        assistantText('X has 2 hits; Y says "Y!".'),
+      ]
+    );
+
+    // Two separate durable activities between the two model calls — not one
+    // batched call, and not a silently dropped second tool.
+    expect(calls.map((c) => c.name)).toEqual([
+      ACTIVITY_INVOKE_MODEL,
+      ACTIVITY_INVOKE_TOOL,
+      ACTIVITY_INVOKE_TOOL,
+      ACTIVITY_INVOKE_MODEL,
+    ]);
+
+    // Dispatched in the model's order. Replay re-executes the orchestrator from
+    // the top, so a nondeterministic iteration order here would replay as a
+    // different history against the same checkpoints.
+    expect(
+      calls
+        .filter((c) => c.name === ACTIVITY_INVOKE_TOOL)
+        .map((c) => (c.input as { toolCallId: string }).toolCallId)
+    ).toEqual(['call-1', 'call-2']);
+
+    // And both results reach the model, correlated to the right call.
+    expect(output.messages.slice(-3, -1)).toEqual([
+      { role: 'tool', content: '{"hits":2}', toolCallId: 'call-1' },
+      { role: 'tool', content: '{"body":"Y!"}', toolCallId: 'call-2' },
+    ]);
+    expect(output.status).toBe(WorkflowStatus.COMPLETED);
+    expect(output.iterations).toBe(2);
   });
 
   it('surfaces a tool error to the model as the tool message', async () => {
@@ -238,16 +296,33 @@ describe('agentWorkflow', () => {
   it('rejects malformed workflow input at the boundary', async () => {
     // `rejects` rather than `toThrow`: an async generator surfaces a throw from
     // its body as a rejected promise, not a synchronous exception.
-    await expect(runWorkflow({ threadId: 't1' }, [])).rejects.toThrow();
+    //
+    // Matched on `ZodError` specifically. A bare `toThrow()` is also satisfied
+    // by the driver's own script-exhaustion `Error`, so it would pass whether
+    // the input was rejected at the boundary or accepted and then run off the
+    // end of an empty script — the opposite outcomes this pins.
+    await expect(runWorkflow({ threadId: 't1' }, [])).rejects.toThrow(
+      z.ZodError
+    );
   });
 
   it('rejects a malformed activity result on replay', async () => {
     // Activity output comes back from the state store, i.e. from outside the
     // process. A schema change that would mis-read an in-flight workflow has
     // to fail here rather than corrupt the transcript.
+    const calls: ActivityCall[] = [];
     await expect(
-      runWorkflow({ prompt: 'go', threadId: 't1' }, [{ nonsense: true }])
-    ).rejects.toThrow();
+      runWorkflow({ prompt: 'go', threadId: 't1' }, [{ nonsense: true }], calls)
+    ).rejects.toThrow(z.ZodError);
+
+    // One dispatch, no timers. This is the property that separates
+    // deterministic-fail-fast from retry-with-backoff: moving the parse back
+    // inside the retry region still throws, but it throws after burning two
+    // timers, and only this assertion can tell the two apart.
+    expect(calls.filter((c) => c.name === 'timer')).toEqual([]);
+    expect(calls.filter((c) => c.name === ACTIVITY_INVOKE_MODEL)).toHaveLength(
+      1
+    );
   });
 });
 
@@ -502,8 +577,18 @@ describe('tool retry', () => {
     ).length;
     expect(toolAttempts).toBe(3);
     expect(modelCalls).toBe(2);
-    // Backoff between attempts, as durable timers.
-    expect(calls.filter((c) => c.name === 'timer')).toHaveLength(2);
+    // Backoff between attempts, as durable timers — asserted by *value*, not
+    // just by count. The clock is fixed at 00:00:00.000Z, so 500ms then 1000ms
+    // of exponential backoff lands on exactly these two instants. Counting
+    // alone survives both determinism corruptions the comment at :202 warns
+    // about: swapping `ctx.getCurrentUtcDateTime()` for `Date.now()` (which
+    // makes replay diverge) and forcing `delayMs` to 0 (which removes the
+    // backoff while keeping the timers). Neither is visible to lint.
+    expect(
+      calls
+        .filter((c) => c.name === 'timer')
+        .map((c) => (c.input as Date).toISOString())
+    ).toEqual(['2026-08-12T00:00:00.500Z', '2026-08-12T00:00:01.000Z']);
   });
 
   it('reports the failure to the model once retries are exhausted', async () => {
