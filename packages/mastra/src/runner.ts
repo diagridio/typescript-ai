@@ -408,13 +408,22 @@ export class DaprWorkflowAgentRunner extends BaseWorkflowRunner {
     if (!this.isRunning) {
       return;
     }
-    // The checkpointer shares this runner's state store by default, which the
-    // base class already closes; closing it again is a no-op by design.
-    await super.shutdown();
-    // Only this runner's own invokers are dropped. The previous version cleared
-    // a module-level registry here, which emptied it for any other runner still
-    // serving in the same process.
-    this.#toolInvokers = new Map();
-    this.#modelInvoker = undefined;
+    try {
+      // The checkpointer shares this runner's state store by default, which the
+      // base class already closes; closing it again is a no-op by design.
+      await super.shutdown();
+    } finally {
+      // In a `finally` because `super.shutdown()` throws an AggregateError when
+      // any of its four steps fails — which a not-ready sidecar reliably causes.
+      // On the success path only, a runner could end up `stopped` while still
+      // holding live tool closures, which is the opposite of what shutdown is
+      // for and matches the base class's own "every step runs" principle.
+      //
+      // Only this runner's own invokers are dropped. The previous version
+      // cleared a module-level registry here, which emptied it for any other
+      // runner still serving in the same process.
+      this.#toolInvokers = new Map();
+      this.#modelInvoker = undefined;
+    }
   }
 }

@@ -537,6 +537,28 @@ describe('oversized tool results', () => {
     expect(toolMessage?.content).toContain('truncated 5000 characters');
   });
 
+  it('truncates an oversized tool *failure* message too', async () => {
+    // The failure path is the uncapped one, and it is the likelier offender: a
+    // failure message is an activity error, which for an HTTP client routinely
+    // embeds a whole response body. It is checkpointed and re-sent on every
+    // remaining iteration exactly like a success is, so it needs the same cap.
+    const huge = 'x'.repeat(MAX_TOOL_RESULT_CHARS + 5_000);
+    const { output } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
+      assistantToolCall('c1', 'searchDocs', '{}'),
+      new Error(huge),
+      new Error(huge),
+      new Error(huge),
+      assistantText('gave up on that tool'),
+    ]);
+
+    const toolMessage = output.messages.find((m) => m.role === 'tool');
+    expect(toolMessage?.content).toContain('tool failed after 3 attempts');
+    expect(toolMessage?.content).toContain('truncated');
+    expect(toolMessage?.content.length).toBeLessThan(
+      MAX_TOOL_RESULT_CHARS + 200
+    );
+  });
+
   it('leaves ordinary tool output untouched', async () => {
     const { output } = await runWorkflow({ prompt: 'go', threadId: 't1' }, [
       assistantToolCall('c1', 'searchDocs', '{}'),

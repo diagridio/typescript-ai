@@ -205,6 +205,41 @@ describe('createModelInvoker', () => {
     expect(attempts).toBe(2);
   });
 
+  it('asks Mastra for exactly one step', async () => {
+    // Half of this file's central invariant. `maxSteps: 1` is what keeps the
+    // loop in the workflow — with more, Mastra would run its own iterations
+    // outside any checkpointed activity — and nothing observed what
+    // `createModelInvoker` actually sends, so the 30-line "do not simplify
+    // this" argument at the top of bridge.ts was enforced only by prose.
+    // Changing it to 10 passed the entire gate.
+    //
+    // Spied on `generate`, not on the model: `maxSteps` is a Mastra-level loop
+    // control and never reaches `doGenerate`, so `mockModel`'s recorded options
+    // cannot see it.
+    const { model } = mockModel([{ type: 'text', text: 'done' }]);
+    const agent = agentWith(model);
+    const sent: Record<string, unknown>[] = [];
+    const realGenerate = agent.generate.bind(agent);
+    (agent as unknown as { generate: unknown }).generate = (
+      messages: unknown,
+      options: Record<string, unknown>
+    ) => {
+      sent.push(options);
+      return (realGenerate as (m: unknown, o: unknown) => unknown)(
+        messages,
+        options
+      );
+    };
+
+    await createModelInvoker(agent)({
+      messages: [{ role: 'user', content: 'hi' }],
+      iteration: 0,
+      threadId: 't1',
+    });
+
+    expect(sent[0]?.['maxSteps']).toBe(1);
+  });
+
   it('unwraps the payload of a tool call', async () => {
     // Mastra nests these under `payload`, not flat. Reading them flat yields an
     // empty tool name, which the workflow then reports as "Unknown tool".

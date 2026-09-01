@@ -358,7 +358,15 @@ export async function* agentWorkflow(
         // strictly worse.
         messages.push({
           role: 'tool',
-          content: `tool failed after ${ACTIVITY_MAX_ATTEMPTS} attempts: ${toolAttempt.failure}`,
+          // Capped like the success path. `toolAttempt.failure` is an activity
+          // error message, which for an HTTP client routinely carries a whole
+          // response body — measured at 60,000 chars against a 16,000 cap, in a
+          // message that is checkpointed into workflow state and re-sent to the
+          // model on every remaining iteration. Both curves have to be bounded
+          // at both places a tool result enters the transcript, not one.
+          content: capToolResult(
+            `tool failed after ${ACTIVITY_MAX_ATTEMPTS} attempts: ${toolAttempt.failure}`
+          ),
           toolCallId: call.id,
         });
         continue;

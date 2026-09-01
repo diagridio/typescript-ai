@@ -188,12 +188,23 @@ describe('registerShutdownHandlers', () => {
 
   it('removes its handlers when disposed', async () => {
     const runner = await startedRunner();
-    const before = process.listenerCount('SIGTERM');
+    const before = {
+      term: process.listenerCount('SIGTERM'),
+      // SIGINT as well as SIGTERM. Only SIGTERM was asserted, so deleting the
+      // `process.once('SIGINT', handler)` registration survived the whole gate
+      // — and the regression it hides is Ctrl-C silently ceasing to be graceful,
+      // in the file whose entire purpose is graceful shutdown. The disposer
+      // still calls `process.off('SIGINT', ...)`, so nothing goes unused and
+      // lint cannot see it either.
+      int: process.listenerCount('SIGINT'),
+    };
 
     const dispose = runner.registerShutdownHandlers();
-    expect(process.listenerCount('SIGTERM')).toBe(before + 1);
+    expect(process.listenerCount('SIGTERM')).toBe(before.term + 1);
+    expect(process.listenerCount('SIGINT')).toBe(before.int + 1);
 
     dispose();
-    expect(process.listenerCount('SIGTERM')).toBe(before);
+    expect(process.listenerCount('SIGTERM')).toBe(before.term);
+    expect(process.listenerCount('SIGINT')).toBe(before.int);
   });
 });

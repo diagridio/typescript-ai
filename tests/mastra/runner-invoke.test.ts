@@ -52,7 +52,14 @@ interface FakeClient {
     input?: unknown,
     id?: string
   ): Promise<string>;
-  waitForWorkflowCompletion(): Promise<WorkflowState | undefined>;
+  // Declared with its real parameters, like `scheduleNewWorkflow` above and for
+  // the same reason: a zero-arg fake silently discarded the instance id, so
+  // waiting on a bogus id was indistinguishable from waiting on a correct one.
+  waitForWorkflowCompletion(
+    id: string,
+    fetchPayloads?: boolean,
+    timeoutInSeconds?: number
+  ): Promise<WorkflowState | undefined>;
 }
 
 /**
@@ -230,28 +237,87 @@ describe('schedule', () => {
   function capturingRunner(options: { maxIterations?: number } = {}): {
     runner: TestableRunner;
     sent: () => Partial<ScheduledWorkflowInput>;
+    sentName: () => string | undefined;
+    sentId: () => string | undefined;
+    waitedId: () => string | undefined;
   } {
     const seen: unknown[] = [];
+    const sentName: string[] = [];
+    const sentId: (string | undefined)[] = [];
+    const waitedId: string[] = [];
     const runner = new TestableRunner({
       agent: fakeMastraAgent(),
       name: 'support-agent',
       ...options,
     });
+    // The fake takes its real parameters. A version that dropped the name and
+    // the instance id let two regressions through the whole gate: the caller's
+    // `workflowId` never reaching Dapr (verbatim the bug `schedule()`'s own doc
+    // describes as having shipped once — run 2 quietly restarted work run 1 had
+    // finished), and `this.workflowName` replaced by a name no worker
+    // registered. The zero-arg `waitForWorkflowCompletion` had the same hole:
+    // waiting on a bogus id was indistinguishable from waiting on a real one.
     runner.useClient({
-      scheduleNewWorkflow: (_name, input) => {
+      scheduleNewWorkflow: (name: string, input, workflowId?: string) => {
+        sentName.push(name);
+        sentId.push(workflowId);
         seen.push(input);
-        return Promise.resolve('wf-1');
+        return Promise.resolve(workflowId ?? 'wf-1');
       },
-      waitForWorkflowCompletion: () =>
-        Promise.resolve(
+      waitForWorkflowCompletion: (id: string) => {
+        waitedId.push(id);
+        return Promise.resolve(
           fakeState({ serializedOutput: JSON.stringify(COMPLETED_OUTPUT) })
-        ),
+        );
+      },
     });
     return {
       runner,
       sent: () => seen[0] as Partial<ScheduledWorkflowInput>,
+      sentName: () => sentName[0],
+      sentId: () => sentId[0],
+      waitedId: () => waitedId[0],
     };
   }
+
+  it("passes the caller's workflowId through as the Dapr instance id", async () => {
+    const { runner, sentId } = capturingRunner({});
+
+    await runner.schedule(
+      { prompt: 'go', threadId: 't1' },
+      {
+        workflowId: 'thread-t1',
+      }
+    );
+
+    expect(sentId()).toBe('thread-t1');
+  });
+
+  it('waits on the instance id it just scheduled', async () => {
+    const { runner, sentId, waitedId } = capturingRunner({});
+
+    await runner.invoke(
+      { prompt: 'go', threadId: 't1' },
+      {
+        workflowId: 'thread-t1',
+      }
+    );
+
+    expect(sentId()).toBe('thread-t1');
+    expect(waitedId()).toBe('thread-t1');
+  });
+
+  it('schedules under the workflow name this runner registered', async () => {
+    const { runner, sentName } = capturingRunner({});
+
+    await runner.schedule({ prompt: 'go', threadId: 't1' });
+
+    // Not a literal: the name is derived, and a worker only services names it
+    // registered. Compared against the runner's own accessor so the two cannot
+    // drift apart silently.
+    expect(sentName()).toBe(runner.workflowName);
+    expect(sentName()).toContain('mastra');
+  });
 
   it("applies the runner's maxIterations when the caller omits it", async () => {
     // Nothing captured what was sent before this, so the runner's own
