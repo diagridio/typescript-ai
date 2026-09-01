@@ -1,0 +1,66 @@
+name: Integration Tests
+
+# Nightly and on demand only — never on a PR. These tests spawn real processes
+# and have real timeouts, so they are too slow to gate a review on. The PR gate
+# is build.yaml.
+#
+# This lane runs the integration suite's sidecar-free half. Anything needing a
+# live sidecar *and* a model lives in e2e-ollama.yaml, which provisions both.
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # nightly at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.0.10
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      # No Dapr CLI and no OLLAMA_ENDPOINT here, deliberately.
+      #
+      # This lane used to install the CLI and run `dapr init`, which bought
+      # nothing: without a model the durable-execution block skips, and what
+      # remains is the no-sidecar half — scripts spawned *without* `dapr run`,
+      # which needs no sidecar at all. So the setup cost was paid nightly for
+      # coverage that never ran. The full turn is covered by e2e-ollama.yaml,
+      # which has both a sidecar and a model.
+      #
+      # Do not set DIAGRID_E2E_REQUIRED here; it exists to fail a lane that was
+      # *supposed* to run the durable block, and this one is not.
+      - name: Run integration tests
+        run: pnpm test:integration
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: integration-failure-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            coverage/
+          if-no-files-found: ignore
+          retention-days: 7

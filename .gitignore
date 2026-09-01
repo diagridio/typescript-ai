@@ -1,0 +1,75 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+.tsbuild/
+
+# Test / coverage output
+coverage/
+.vitest-reports/
+*.lcov
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+.envrc
+
+# Caches
+.eslintcache
+.cache/
+.npm/
+.turbo/
+.tsimp/
+
+# Editors
+.idea/
+*.swp
+*.swo
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Per-developer AI assistant config. Local tool permissions are personal and
+# can name internal tooling — this is a public repository, so ignore it here
+# rather than relying on every contributor having a global rule for it.
+.claude/settings.local.json
+.cursor/
+CLAUDE.local.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dapr / local infra scratch
+.dapr/
+components/local/
+
+# Diagrid Catalyst dev-session files.
+#
+# `diagrid dev scaffold` bakes a live DAPR_API_TOKEN into the generated file:
+#
+#   DAPR_API_TOKEN: diagrid://v1/<org>/<project>/<appid>/<secret>
+#
+# That is a credential, and this is a public repository, so these must never be
+# committed. Prefer `diagrid dev run --app-id <id> -- <cmd>`, which needs no file
+# on disk at all.
+dev-*.yaml
+!dev-*.example.yaml
+.diagrid/
+
+# Ad-hoc local scratch space
+tmp/
+scratch/

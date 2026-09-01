@@ -1,0 +1,134 @@
+name: E2E Tests (Ollama)
+
+# Real model, real sidecar. Mirrors python-ai's e2e-ollama.yaml: installs
+# Ollama, pulls a small model, sets up Docker and the Dapr CLI, then runs the
+# integration-tagged suite.
+#
+# ## Why this runs on every PR
+#
+# It was label-gated while the model bridge was a stub: there was no agent turn
+# for a live model to complete, so 20 minutes of runner time proved nothing. That
+# precondition is gone — the adapter completes real turns, and this is the only
+# lane that runs one end to end.
+#
+# It is worth the ~20 minutes against ~2 for the rest of the gate because of what
+# only this lane can see. The sync-generator bug marked workflows COMPLETED
+# without running a single activity, and neither the type checker nor the unit
+# tests could catch it: the tests drive the orchestrator directly and so bypass
+# Dapr's dispatch entirely. `mastra-examples.integration.test.ts` asserts
+# `Iterations > 0` precisely for that, and the assertion only means something
+# with a real sidecar behind it.
+#
+# `DIAGRID_E2E_REQUIRED=1` is set below so a missing model or CLI fails the job
+# rather than skipping the block and reporting green.
+
+on:
+  # No branch filter, deliberately — the same reasoning as `build.yaml`, which
+  # #7 applied there and to `deps-check.yaml` and `security.yaml` but not here.
+  # Because the filter matches on the *base* branch, `branches: [main]` gave the
+  # e2e lane to PRs into `main` and nothing to PRs stacked on a feature branch —
+  # and stacking onto `feat/scaffold-mastra-adapter` is this repo's normal case,
+  # not the exception. #8 got no e2e at all.
+  pull_request:
+  schedule:
+    - cron: "0 4 * * *" # nightly at 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-ollama:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.0.10
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Cache Ollama model
+        id: cache-ollama
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.ollama
+          key: ollama-qwen3-0.6b-v1-${{ runner.os }}
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama and pull model
+        run: |
+          ollama serve &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "Ollama server is ready"
+              break
+            fi
+            echo "Waiting for Ollama... ($i/30)"
+            sleep 2
+          done
+          ollama pull qwen3:0.6b
+          echo "Warming up model..."
+          curl -sf http://localhost:11434/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -d '{"model":"qwen3:0.6b","messages":[{"role":"user","content":"Say hello in one word"}]}' \
+            > /dev/null 2>&1 || echo "WARNING: Model warm-up failed, tests may be slower"
+          echo "Ollama ready with qwen3:0.6b"
+
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v5.4.0
+
+      - name: Install Dapr CLI
+        run: wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash
+
+      - name: Initialize Dapr
+        run: dapr init
+
+      - name: Run E2E tests
+        env:
+          OLLAMA_ENDPOINT: http://localhost:11434/v1
+          OLLAMA_MODEL: qwen3:0.6b
+          OPENAI_API_KEY: ollama
+          OPENAI_BASE_URL: http://localhost:11434/v1
+          # Turn a missing prerequisite into a failure. Without this, an Ollama
+          # that never came up would let the suite skip itself and report green
+          # — the one outcome a gated e2e lane must never produce.
+          DIAGRID_E2E_REQUIRED: "1"
+        run: pnpm test:integration
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: e2e-ollama-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/e2e_*
+            /tmp/dapr-*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Stop Ollama and tear down Dapr state so the runner is left clean for
+          # the next job (and so a retry of this job starts from zero).
+          pkill -f "ollama serve" || true
+          dapr uninstall --all 2>/dev/null || true
+          docker ps -aq --filter "name=dapr_" | xargs -r docker rm -f 2>/dev/null || true

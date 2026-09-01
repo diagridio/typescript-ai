@@ -1,0 +1,23 @@
+{
+  "name": "@diagrid/example-mastra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Diagrid Mastra example scripts",
+  "license": "BUSL-1.1",
+  "type": "module",
+  "scripts": {
+    "inspect": "tsx inspect-agent.ts",
+    "simple": "tsx simple-agent.ts",
+    "crash-recovery": "tsx crash-recovery.ts",
+    "retry": "tsx retry.ts"
+  },
+  "dependencies": {
+    "@diagrid/agent-mastra": "workspace:*",
+    "@mastra/core": "1.57.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "tsx": "4.23.12",
+    "typescript": "6.0.3"
+  }
+}

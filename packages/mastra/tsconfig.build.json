@@ -1,0 +1,22 @@
+{
+  // Declaration-emit config used *only* by tsup's `.d.ts` step.
+  // See packages/core/tsconfig.build.json for why this file exists.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "declaration": true,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "ignoreDeprecations": "6.0",
+    "rootDir": "src",
+    // Drop the source-first `paths` aliases for the build. esbuild honours
+    // tsconfig `paths`, so leaving them in makes it resolve
+    // `@diagrid/agent-core` to a file *inside the workspace* and inline the
+    // whole shared runtime into this adapter's bundle — defeating the point of
+    // a shared core. Cleared here so resolution goes through node_modules and
+    // core stays external.
+    "paths": {}
+  },
+  "include": ["src/**/*.ts"]
+}

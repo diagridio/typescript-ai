@@ -1,0 +1,10 @@
+# Default owner for everything in this repository.
+#
+# NOTE: the team below is an assumption made when the repo was scaffolded —
+# it matches the AI engineering team in the diagridio org. Adjust if the
+# adapters should be owned elsewhere; an unresolvable team here silently
+# disables review requests rather than failing loudly.
+* @diagridio/diagrid-engineering-ai
+
+# CI, release and dependency policy — changes here affect how everything ships.
+/.github/ @diagridio/diagrid-engineering-ai

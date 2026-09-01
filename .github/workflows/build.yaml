@@ -1,0 +1,110 @@
+name: Lint and Build
+
+# The PR gate. Format, lint, type-check, build and unit tests — everything that
+# needs no infrastructure and no secrets. Integration and real-LLM tests live in
+# integration.yaml and e2e-ollama.yaml.
+
+on:
+  # No branch filter, deliberately. This used to list `main`, `feature/*` and
+  # `release-*` — but this repo's branches are named `feat/`, so every pull
+  # request into the stack matched nothing and ran no checks at all. #4 and #5
+  # both merged with zero CI, silently, and nothing in the PR UI said so.
+  #
+  # An enumerated list of target branches has to be kept in step with a naming
+  # convention nobody wrote down. Running on every pull request cannot drift.
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One in-flight run per ref; a newer push cancels the previous run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    # Skip the push-triggered run for bot commits (Dependabot, the release
+    # workflow's version bump) — the PR run already covered them.
+    if: >-
+      github.event_name != 'push' ||
+      !contains(fromJSON('["github-actions[bot]", "diagrid-bot[bot]"]'), github.event.head_commit.author.name)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.0.10
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Fail if the formatter would change anything, matching the
+      # `ruff format` + `git status --porcelain` gate in python-ai.
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Run linter
+        run: pnpm lint
+
+  build:
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Node 22 (maintenance LTS) and 24 (active LTS). Node 20 went
+          # end-of-life on 2026-04-30 and @mastra/core requires >=22.13.0.
+          - { os: ubuntu-latest, node: "22" }
+          - { os: ubuntu-latest, node: "24" }
+          - { os: windows-latest, node: "24" }
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v6.0.10
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm typecheck
+
+      # Before the tests: the adapter-isolation guard inspects the built
+      # bundles, and it must not silently skip that layer here.
+      - name: Build packages
+        run: pnpm build
+
+      - name: Run unit tests
+        run: pnpm test:unit
+
+      # Packaging correctness, which no test can see: the exports map decides
+      # which declaration file each consumer resolves, and getting it wrong is
+      # only discoverable after publishing. An earlier version put `types` above
+      # `import`/`require`, so the shipped .d.cts was never used and CJS
+      # consumers on `node16` got TS1479.
+      - name: Check published types resolve correctly
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
+        # Pinned, not @latest: this runs on every PR, and an unpinned fetch means
+        # the gate's behaviour can change without a commit. Dependabot bumps it
+        # like any other pinned dependency.
+        run: |
+          npx --yes @arethetypeswrong/cli@0.18.5 --pack ./packages/core --format table
+          npx --yes @arethetypeswrong/cli@0.18.5 --pack ./packages/mastra --format table

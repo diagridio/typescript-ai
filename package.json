@@ -1,0 +1,74 @@
+{
+  "name": "@diagrid/typescript-ai",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Durable workflow integrations for TypeScript AI agent frameworks",
+  "license": "BUSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/diagridio/typescript-ai.git"
+  },
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/*\" run build",
+    "clean": "pnpm -r --filter \"./packages/*\" run clean && node -e \"for (const d of ['.tsbuild','coverage']) require('node:fs').rmSync(d,{recursive:true,force:true})\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --build --pretty",
+    "test": "vitest run --project unit",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:guards": "vitest run --project unit tests/guards",
+    "test:cov": "vitest run --project unit --coverage",
+    "test:watch": "vitest --project unit",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@dapr/dapr": "3.18.0",
+    "@eslint/js": "10.0.1",
+    "@grpc/grpc-js": "1.14.4",
+    "@mastra/core": "1.57.0",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/exporter-trace-otlp-grpc": "0.221.0",
+    "@opentelemetry/resources": "2.10.0",
+    "@opentelemetry/sdk-trace-node": "2.10.0",
+    "@opentelemetry/semantic-conventions": "1.43.0",
+    "@types/node": "26.2.0",
+    "@vitest/coverage-v8": "4.1.10",
+    "eslint": "10.8.1",
+    "eslint-config-prettier": "10.1.8",
+    "husky": "9.1.7",
+    "lint-staged": "17.3.0",
+    "prettier": "3.9.6",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.67.0",
+    "vitest": "4.1.10",
+    "zod": "4.4.3"
+  },
+  "//devDependencies": [
+    "The @opentelemetry/* and @grpc/grpc-js entries are here for the test",
+    "harness, not for the build: tests/guards/telemetry-compat.test.ts imports",
+    "them directly to pin the upstream surface that packages/core loads behind",
+    "a dynamic import(). pnpm's isolated node_modules means a dependency of",
+    "packages/core is not resolvable from tests/, so the guard needs its own",
+    "packages/core. @mastra/core is here for the same reason:",
+    "tests/mastra/mapper-real-agent.test.ts maps a genuine Mastra Agent, which is",
+    "the only way to catch config that the class keeps private (see that file)."
+  ],
+  "lint-staged": {
+    "*.{ts,tsx,mts,cts}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,md,yaml,yml}": [
+      "prettier --write"
+    ]
+  }
+}

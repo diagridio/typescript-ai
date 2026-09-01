@@ -1,0 +1,366 @@
+name: Release npm Packages
+
+# Manual, controlled publish to npm. You pick the version; the workflow stamps
+# it across every workspace package, re-locks, commits, tags `v$VERSION`, cuts a
+# GitHub release with generated notes, and publishes each package.
+#
+# Publish order matters: @diagrid/agent-core first, because
+# @diagrid/agent-mastra declares a dependency on its exact version.
+#
+# ## One-time prerequisites (NOT in this repo)
+#
+# Publishing is the one thing here that cannot be set up from inside the repo.
+# Before the first run, someone with npm org access must do ONE of:
+#
+#   a) Trusted publishing (preferred — no long-lived credential). On npmjs.com,
+#      for each of @diagrid/agent-core and @diagrid/agent-mastra, add a trusted
+#      publisher: repository `diagridio/typescript-ai`, workflow
+#      `.github/workflows/npm-release.yaml`. The `id-token: write` permission
+#      below is what npm exchanges for a short-lived token, and `--provenance`
+#      then attaches a signed attestation. No secret is needed.
+#
+#   b) Fall back to a granular automation token: create it on npmjs.com with
+#      publish rights on the @diagrid scope, store it as the repository secret
+#      NPM_TOKEN, and uncomment the NODE_AUTH_TOKEN lines below.
+#
+# Either way, the @diagrid npm scope must exist and this repo's publisher must
+# have write access to it. See the PR description for the assumption made about
+# the scope name.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "New version to release (e.g. 0.1.1)"
+        required: true
+        type: string
+      dry_run:
+        description: "Build and pack only — no commit, tag, release or publish"
+        required: false
+        default: false
+        type: boolean
+      dist_tag:
+        description: "npm dist-tag override (blank = latest for a release, next for a prerelease)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  id-token: write # npm trusted publishing / provenance
+  contents: write # committing the bump, tagging, creating the release
+
+# One release at a time, and never cancel one midway. Publishing two versions
+# concurrently races the `latest` dist-tag, and a run cancelled between the two
+# package publishes leaves @diagrid/agent-mastra depending on a core version
+# that is not on the registry. Both publishes are idempotent, so the fix for an
+# interrupted run is to re-dispatch it.
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # `workflow_dispatch` accepts any ref and the checkout below takes no `ref:`,
+    # so without this any branch that fast-forwards main could be dispatched,
+    # pushed to main and published with `--provenance` — and the attestation
+    # would name this repo and workflow, lending it full credibility.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: npm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6.0.10
+
+      # Node 24, not 22, and the version matters: npm OIDC trusted publishing
+      # needs npm >= 11.5.1. Node 22 ships 10.9.8, which cannot do it — and with
+      # NODE_AUTH_TOKEN commented out for the trusted-publishing path, the first
+      # real run would reach `npm publish` with no credential at all. Node 24
+      # ships 11.17.0.
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "24"
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          # Reject anything that is not plain semver up front: a bad value here
+          # would otherwise be discovered only after the commit and tag exist.
+          #
+          # Two checks, in this order, and the order is the point.
+          #
+          # `case` first, because it matches the *whole string*. `grep -Eq`
+          # anchors ^ and $ per line, so a multi-line value passes on the
+          # strength of any one line — and $VERSION then reaches the
+          # `sed -i "s/...'$VERSION'/"` below, where a newline breaks out of the
+          # s/// and runs an attacker-chosen sed command, in a job holding
+          # id-token: write, contents: write and npm trusted-publishing rights.
+          # To `case`, a newline is simply a character outside the allowed set.
+          case "$VERSION" in
+            *[!0-9A-Za-z.-]* )
+              echo "::error::version contains characters outside [0-9A-Za-z.-]"
+              exit 1 ;;
+          esac
+
+          # Only now that a newline cannot be present is grep's per-line
+          # anchoring no longer exploitable, so it can enforce the actual semver
+          # shape — which the character check above deliberately does not (it
+          # would accept "1.0", or a bare "1").
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$VERSION' is not a valid semver version (e.g. 0.1.1)"
+            exit 1
+          fi
+
+      # Everything that can fail cheaply happens here, before the first
+      # irreversible step. The previous ordering discovered a bad npm version at
+      # step 20 — after the commit, tag and GitHub release already existed, and
+      # neither re-running nor re-dispatching could recover: re-run hits a
+      # non-fast-forward push, re-dispatch hits "nothing to commit".
+      - name: Pre-flight
+        env:
+          VERSION: ${{ inputs.version }}
+          DIST_TAG: ${{ inputs.dist_tag }}
+        run: |
+          set -euo pipefail
+          fail=0
+
+          # A prerelease must not become `latest`, which is what `npm publish`
+          # defaults to. The version validator accepts `0.2.0-rc.1`, so without
+          # this a plain `npm install` would pick up a release candidate.
+          #
+          # An explicit dist_tag overrides the inference, for the case the
+          # inference cannot cover: a plain semver version that should NOT be
+          # latest — a `preview` tag for the first internal release, or a
+          # backport to an older line that must not move `latest` forward.
+          # Deliberately not allowed to make a prerelease `latest`, since that
+          # is the one outcome nobody wants and the inference exists to prevent.
+          if [ -n "$DIST_TAG" ]; then
+            if [ "$DIST_TAG" = "latest" ] && printf '%s' "$VERSION" | grep -q -- '-'; then
+              echo "::error::refusing to publish prerelease $VERSION under dist-tag 'latest'"
+              fail=1
+            fi
+            # Whole-string, for the same reason as the version above: a
+            # multi-line dist_tag would otherwise pass on its first line, let a
+            # prerelease publish under `latest` — the one outcome the comment
+            # above says nobody wants — and append extra `KEY=value` lines to
+            # $GITHUB_ENV, which the runner does parse.
+            case "$DIST_TAG" in
+              *[!a-z0-9-]* | [!a-z]* )
+                echo "::error::'$DIST_TAG' is not a valid dist-tag (lowercase letters, digits and hyphens)"
+                fail=1 ;;
+            esac
+            echo "NPM_DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+            echo "publishing under the requested dist-tag '$DIST_TAG'"
+          elif printf '%s' "$VERSION" | grep -q -- '-'; then
+            echo "NPM_DIST_TAG=next" >> "$GITHUB_ENV"
+            echo "prerelease detected — publishing under dist-tag 'next'"
+          else
+            echo "NPM_DIST_TAG=latest" >> "$GITHUB_ENV"
+          fi
+
+          echo "npm $(npm --version), node $(node --version)"
+          # Trusted publishing needs npm >= 11.5.1.
+          #
+          # Argument order matters and is easy to get backwards: `sort -V -C`
+          # succeeds only when its input is ALREADY in ascending order, so the
+          # minimum must come first and the actual version second — that asserts
+          # `minimum <= actual`. Written the other way round it asserts
+          # `actual <= minimum`, which fails every up-to-date runner and passes
+          # silently on exactly the old npm this check exists to catch.
+          if ! printf '%s\n%s\n' "11.5.1" "$(npm --version)" | sort -V -C; then
+            echo "::error::npm $(npm --version) is too old for trusted publishing (needs >= 11.5.1)"
+            fail=1
+          fi
+
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::tag v$VERSION already exists"
+            fail=1
+          fi
+
+          # Only *both* already published is a hard stop. Failing when either
+          # one is on the registry made the per-package idempotency skips below
+          # unreachable and broke the recovery this file's own header documents:
+          # core published, mastra not, re-dispatch -> this loop trips -> exit,
+          # and "Re-run failed jobs" re-runs the pre-flight identically. Because
+          # npm versions are immutable the operator's only route was bumping the
+          # version and abandoning the published core, which is precisely the
+          # unrecoverable mid-release state this ordering exists to prevent.
+          published=0
+          for pkg in @diagrid/agent-core @diagrid/agent-mastra; do
+            if npm view "$pkg@$VERSION" version >/dev/null 2>&1; then
+              echo "$pkg@$VERSION is already on the registry — the publish step will skip it"
+              published=$((published + 1))
+            fi
+          done
+          if [ "$published" -eq 2 ]; then
+            echo "::error::both packages are already published at $VERSION — npm versions are immutable, so bump the version"
+            fail=1
+          fi
+
+          exit "$fail"
+
+      - name: Bump versions across the workspace
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Root manifest is private, but keep it in step so the repo has one
+          # version number, matching python-ai's root meta-package.
+          pnpm version "$VERSION" --no-git-tag-version --allow-same-version
+          pnpm -r --filter "./packages/*" exec \
+            pnpm version "$VERSION" --no-git-tag-version --allow-same-version
+          # version.ts is a source constant so it survives bundling; it has to
+          # move with the manifests or `VERSION` lies at runtime.
+          for f in packages/*/src/version.ts; do
+            sed -i "s/^export const VERSION = '.*';$/export const VERSION = '$VERSION';/" "$f"
+          done
+          git diff --stat
+
+      - name: Verify the version stamp is consistent
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # Cheap insurance against a half-applied bump reaching npm, where it
+          # cannot be undone.
+          for f in packages/*/package.json; do
+            actual=$(node -p "require('./$f').version")
+            [ "$actual" = "$VERSION" ] || { echo "::error::$f is $actual, expected $VERSION"; exit 1; }
+          done
+          for f in packages/*/src/version.ts; do
+            grep -q "export const VERSION = '$VERSION';" "$f" \
+              || { echo "::error::$f was not stamped to $VERSION"; exit 1; }
+          done
+
+      - name: Update lockfile
+        run: pnpm install --lockfile-only --ignore-scripts
+
+      # The full gate, against the versions about to be published.
+      - name: Check formatting
+        run: pnpm format:check
+      - name: Run linter
+        run: pnpm lint
+      - name: Type check
+        run: pnpm typecheck
+      - name: Build packages
+        run: pnpm build
+      - name: Run unit tests
+        run: pnpm test:unit
+
+      # Pack with pnpm, publish with npm. This split is load-bearing:
+      #
+      #   pnpm pack     rewrites the `workspace:*` dependency in
+      #                 @diagrid/agent-mastra to the concrete version. `npm
+      #                 publish` run directly in the package directory would
+      #                 ship `workspace:*` verbatim — an unresolvable
+      #                 dependency, and unfixable once published.
+      #   npm publish   is the only one of the two that implements
+      #                 `--provenance` (pnpm has no such flag), and it accepts a
+      #                 tarball, so both properties can be had at once.
+      - name: Pack tarballs
+        run: |
+          set -euo pipefail
+          mkdir -p dist-packs
+          pnpm -r --filter "./packages/*" exec \
+            pnpm pack --pack-destination "$GITHUB_WORKSPACE/dist-packs"
+          ls -la dist-packs
+
+      - name: "Verify no workspace: specifier survived packing"
+        run: |
+          set -euo pipefail
+          for tgz in dist-packs/*.tgz; do
+            if tar -xzOf "$tgz" package/package.json | grep -q '"workspace:'; then
+              echo "::error::$tgz still contains a workspace: specifier"
+              exit 1
+            fi
+          done
+          echo "All tarballs carry concrete dependency versions."
+
+      # Publish before tagging. The ordering is deliberate and asymmetric:
+      #
+      #   npm published, no tag yet   -> one `git tag` away from consistent.
+      #   tag pushed, npm empty       -> needs a tag deletion, and re-running is
+      #                                  blocked (non-fast-forward push, or
+      #                                  "nothing to commit" on re-dispatch).
+      #
+      # So the recoverable failure is the one placed first.
+      #
+      # Publish core before mastra: mastra depends on core's exact version, and
+      # npm resolves that at install time, so the reverse order would leave a
+      # published package whose dependency does not exist yet.
+      - name: Publish @diagrid/agent-core
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ inputs.version }}
+          # NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}   # only for option (b)
+        run: |
+          set -euo pipefail
+          # Idempotent: a re-run after a partial failure skips what is already up.
+          if npm view "@diagrid/agent-core@$VERSION" version >/dev/null 2>&1; then
+            echo "@diagrid/agent-core@$VERSION already published — skipping"
+            exit 0
+          fi
+          npm publish "dist-packs/diagrid-agent-core-$VERSION.tgz" \
+            --provenance --access public --tag "$NPM_DIST_TAG"
+
+      - name: Publish @diagrid/agent-mastra
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ inputs.version }}
+          # NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}   # only for option (b)
+        run: |
+          set -euo pipefail
+          if npm view "@diagrid/agent-mastra@$VERSION" version >/dev/null 2>&1; then
+            echo "@diagrid/agent-mastra@$VERSION already published — skipping"
+            exit 0
+          fi
+          npm publish "dist-packs/diagrid-agent-mastra-$VERSION.tgz" \
+            --provenance --access public --tag "$NPM_DIST_TAG"
+
+      # Only now that npm is consistent: record the release in git.
+      - name: Commit, tag and release
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json packages/*/package.json packages/*/src/version.ts pnpm-lock.yaml
+          git commit -m "chore: release v$VERSION"
+          git push origin HEAD:main
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Create GitHub release
+        if: ${{ !inputs.dry_run }}
+        uses: softprops/action-gh-release@v3.0.2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          generate_release_notes: true
+
+      # Keep the tarballs either way: on a dry run they are the artefact to
+      # inspect, and on a real release they are what was actually shipped.
+      #
+      # `always()` matters because publishing now happens before tagging: if the
+      # commit/tag step fails (say an unrelated commit landed on main in the
+      # window), the release is already public and the tarball is the only record
+      # of it. That is precisely when it must not be skipped.
+      - name: Upload tarballs
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: npm-packs-${{ inputs.version }}
+          path: dist-packs/
+          retention-days: 14

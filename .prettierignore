@@ -1,0 +1,9 @@
+dist/
+node_modules/
+coverage/
+.tsbuild/
+pnpm-lock.yaml
+
+# Rendered verbatim from the upstream Business Source License text — keep
+# whitespace and line breaks exactly as licensed.
+LICENSE.md

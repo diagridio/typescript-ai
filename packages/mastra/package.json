@@ -1,0 +1,69 @@
+{
+  "name": "@diagrid/agent-mastra",
+  "version": "0.1.1",
+  "description": "Durable execution of Mastra agents on Dapr Workflows",
+  "keywords": [
+    "dapr",
+    "workflow",
+    "durable",
+    "mastra",
+    "ai",
+    "agents",
+    "diagrid"
+  ],
+  "homepage": "https://github.com/diagridio/typescript-ai/tree/main/packages/mastra#readme",
+  "bugs": "https://github.com/diagridio/typescript-ai/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/diagridio/typescript-ai.git",
+    "directory": "packages/mastra"
+  },
+  "license": "BUSL-1.1",
+  "author": "Diagrid Inc.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+  },
+  "dependencies": {
+    "@diagrid/agent-core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@mastra/core": ">=1.50.0 <2",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@mastra/core": "1.57.0",
+    "tsup": "8.5.1",
+    "typescript": "6.0.3",
+    "zod": "4.4.3"
+  }
+}
