@@ -96,6 +96,26 @@ jobs:
         run: |
           # Reject anything that is not plain semver up front: a bad value here
           # would otherwise be discovered only after the commit and tag exist.
+          #
+          # Two checks, in this order, and the order is the point.
+          #
+          # `case` first, because it matches the *whole string*. `grep -Eq`
+          # anchors ^ and $ per line, so a multi-line value passes on the
+          # strength of any one line — and $VERSION then reaches the
+          # `sed -i "s/...'$VERSION'/"` below, where a newline breaks out of the
+          # s/// and runs an attacker-chosen sed command, in a job holding
+          # id-token: write, contents: write and npm trusted-publishing rights.
+          # To `case`, a newline is simply a character outside the allowed set.
+          case "$VERSION" in
+            *[!0-9A-Za-z.-]* )
+              echo "::error::version contains characters outside [0-9A-Za-z.-]"
+              exit 1 ;;
+          esac
+
+          # Only now that a newline cannot be present is grep's per-line
+          # anchoring no longer exploitable, so it can enforce the actual semver
+          # shape — which the character check above deliberately does not (it
+          # would accept "1.0", or a bare "1").
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
             echo "::error::'$VERSION' is not a valid semver version (e.g. 0.1.1)"
             exit 1
@@ -129,10 +149,16 @@ jobs:
               echo "::error::refusing to publish prerelease $VERSION under dist-tag 'latest'"
               fail=1
             fi
-            if ! printf '%s' "$DIST_TAG" | grep -Eq '^[a-z][a-z0-9-]*$'; then
-              echo "::error::'$DIST_TAG' is not a valid dist-tag (lowercase letters, digits and hyphens)"
-              fail=1
-            fi
+            # Whole-string, for the same reason as the version above: a
+            # multi-line dist_tag would otherwise pass on its first line, let a
+            # prerelease publish under `latest` — the one outcome the comment
+            # above says nobody wants — and append extra `KEY=value` lines to
+            # $GITHUB_ENV, which the runner does parse.
+            case "$DIST_TAG" in
+              *[!a-z0-9-]* | [!a-z]* )
+                echo "::error::'$DIST_TAG' is not a valid dist-tag (lowercase letters, digits and hyphens)"
+                fail=1 ;;
+            esac
             echo "NPM_DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
             echo "publishing under the requested dist-tag '$DIST_TAG'"
           elif printf '%s' "$VERSION" | grep -q -- '-'; then
@@ -161,12 +187,25 @@ jobs:
             fail=1
           fi
 
+          # Only *both* already published is a hard stop. Failing when either
+          # one is on the registry made the per-package idempotency skips below
+          # unreachable and broke the recovery this file's own header documents:
+          # core published, mastra not, re-dispatch -> this loop trips -> exit,
+          # and "Re-run failed jobs" re-runs the pre-flight identically. Because
+          # npm versions are immutable the operator's only route was bumping the
+          # version and abandoning the published core, which is precisely the
+          # unrecoverable mid-release state this ordering exists to prevent.
+          published=0
           for pkg in @diagrid/agent-core @diagrid/agent-mastra; do
             if npm view "$pkg@$VERSION" version >/dev/null 2>&1; then
-              echo "::error::$pkg@$VERSION is already published — npm versions are immutable"
-              fail=1
+              echo "$pkg@$VERSION is already on the registry — the publish step will skip it"
+              published=$((published + 1))
             fi
           done
+          if [ "$published" -eq 2 ]; then
+            echo "::error::both packages are already published at $VERSION — npm versions are immutable, so bump the version"
+            fail=1
+          fi
 
           exit "$fail"
 

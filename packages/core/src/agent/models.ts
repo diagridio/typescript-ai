@@ -126,8 +126,24 @@ export const agentWorkflowInputSchema = z.object({
   messages: z.array(messageSchema).default([]),
   /** Hard cap on agent loop iterations. Mirrors the runner's maxIterations. */
   maxIterations: z.number().int().positive().default(25),
-  /** Opaque per-run metadata forwarded to the framework's runtime context. */
-  runtimeContext: z.record(z.string(), z.unknown()).optional(),
+  // Deliberately no `runtimeContext`.
+  //
+  // It was declared here as "opaque per-run metadata forwarded to the
+  // framework's runtime context" and forwarded nowhere: nothing read it, not
+  // `agentWorkflow`, not the activity schemas, not any adapter. It was not
+  // merely dead type surface — `schedule()` spreads the caller's input into the
+  // scheduled payload, so an unbounded `Record<string, unknown>` survived the
+  // parse, landed in the checkpointed Dapr workflow input, and stayed there
+  // until purge, readable through the workflow management API.
+  //
+  // The doc was what made it risky. Told a field is for runtime context, a
+  // caller puts a tenant id, an on-behalf-of token or a downstream API key in
+  // it, and the examples' state store is plain Redis with no
+  // `primaryEncryptionKey`. It also broke this repo's own rule that an
+  // unimplemented path throws rather than returning a plausible-looking result.
+  //
+  // Adding it back once something forwards it is non-breaking. Shipping it in a
+  // frozen 0.1.1 is not, which is why it goes now rather than later.
 });
 
 /**

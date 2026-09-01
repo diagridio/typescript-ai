@@ -51,7 +51,7 @@ import type {
 import type { MastraAgentLike } from './mapper';
 
 /** A Mastra tool as `listTools()` returns it. */
-interface MastraTool {
+export interface MastraTool {
   readonly id?: string;
   readonly description?: string;
   readonly inputSchema?: { parse?: (value: unknown) => unknown };

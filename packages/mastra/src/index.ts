@@ -29,6 +29,9 @@ export {
   definitionOnlyTools,
   readTools,
   toModelMessages,
+  // `readTools()` returns these, so a consumer re-exporting its result under
+  // `declaration: true` hit TS4058 without it.
+  type MastraTool,
 } from './bridge';
 
 export { MastraAgentMapper, type MastraAgentLike } from './mapper';
@@ -64,7 +67,11 @@ export {
   messageRoleSchema,
   messageSchema,
   WorkflowStatus,
+  workflowStatusName,
   workflowStatusSchema,
+  WorkflowRuntimeStatus,
+  DaprStateStore,
+  type AgentMetadataRecord,
   type AgentWorkflowInput,
   type AgentWorkflowOutput,
   type Checkpoint,
@@ -78,6 +85,8 @@ export {
   type ModelInvoker,
   type SaveCheckpointArgs,
   type ScheduledWorkflowInput,
+  type ObservabilityConfig,
+  type RunnerStatus,
   type ToolInvoker,
   type ToolInvokers,
   type WorkflowStatusValue,
