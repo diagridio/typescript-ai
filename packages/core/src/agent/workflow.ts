@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 /**
- * Dapr Workflow definition for durable Mastra agent execution.
+ * Dapr Workflow definition for durable agent execution.
+ *
+ * Framework-agnostic, and shared by every adapter. It started out in the Mastra
+ * adapter and moved here because nothing in it mentions Mastra — core does not
+ * import any framework, has no `@mastra/core` dependency or peer, and
+ * `tests/guards/cross-framework-imports.test.ts` fails if that ever changes.
  *
  * The shape mirrors `diagrid/agent/langgraph/workflow.py` in
  * `diagridio/python-ai`: the agent's control loop becomes the orchestrator,
@@ -16,9 +21,11 @@
  * via closures at registration time — see {@link ToolInvokers}. Nothing about an
  * agent lives at module scope, so two runners in one process cannot interfere.
  *
- * The activity bodies delegate to `./bridge.ts`, which drives Mastra one step at
- * a time so that tool execution stays inside checkpointed activities rather than
- * inside the framework.
+ * The activity bodies do not know what framework is behind them: they call the
+ * injected {@link ModelInvoker} / {@link ToolInvokers}, and it is the adapter's
+ * job to drive its framework one step at a time so tool execution stays inside
+ * checkpointed activities. `packages/mastra/src/bridge.ts` is the worked
+ * example.
  */
 
 import type {
@@ -87,9 +94,27 @@ export const ACTIVITY_INVOKE_TOOL = 'invokeTool';
 /**
  * The activity names a given agent registers and calls.
  *
- * Scoped by both framework and agent, mirroring {@link buildWorkflowName}'s
- * `dapr.<framework>.<Agent>.workflow` — the same lowercasing, so the two names
- * an operator sees for one agent agree with each other.
+ * Scoped by both framework and agent. The two names an operator sees for one
+ * agent do **not** match, and that is deliberate:
+ *
+ * ```
+ * buildWorkflowName : dapr.mastra.SupportAgent.workflow
+ * activityNamesFor  : diagrid.mastra.invokeModel.support-agent
+ * ```
+ *
+ * They differ in prefix, in segment order, and in whether the agent name is
+ * sanitised. The workflow name is a cross-language contract with `python-ai`,
+ * so its shape is fixed; activity names are private to this repo's workers and
+ * use the raw name. That makes activity scoping strictly *finer* than workflow
+ * scoping, which is the safer direction — do not "fix" this by sanitising here.
+ *
+ * Worth stating what this is not: two runners cannot service each other's work
+ * via the shared workflow name, because `agentWorkflow` reads
+ * `input.activityNames` from its own checkpointed input, so a replaying worker
+ * emits the *scheduling* runner's names rather than substituting its own. In
+ * the worst case, where a name is registered nowhere, the outcome is bounded
+ * and loud: 3 attempts, 2 timers, `status: failed`, the offending name in the
+ * error, transcript preserved. No silently wrong answer.
  *
  * Scoping matters because two runners in one process share a Dapr sidecar and
  * each opens its own worker stream. Registered under identical literal names,

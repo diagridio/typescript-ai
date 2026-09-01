@@ -5,8 +5,12 @@
  * The framework extension point.
  *
  * Adding support for a new TypeScript agent framework means implementing one
- * subclass of {@link BaseAgentMapper} (plus the four adapter modules — runner,
- * workflow, models, state — that `packages/mastra` demonstrates). Everything
+ * subclass of {@link BaseAgentMapper}, plus the adapter modules that
+ * `packages/mastra` demonstrates: `runner.ts`, `bridge.ts` (the framework
+ * extension point proper — it drives the framework one step per activity),
+ * `state.ts` and the `index.ts` barrel. `workflow.ts` and `models.ts` used to
+ * be adapter modules too and are now in core, shared by every adapter.
+ * Everything
  * downstream of the mapper — registry publication, workflow naming,
  * telemetry — is framework-agnostic and lives in this package.
  *

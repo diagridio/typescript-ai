@@ -38,12 +38,19 @@ same thing as a working feature:
   public field; nothing writes to it, so `load()` always returns `undefined` in
   practice. Continuing a thread today means passing prior `messages` into
   `invoke()` yourself.
-- **Registry metadata.** `getMetadata()` returns a correct record — the examples
-  print it — but nothing publishes it to a state store or agent registry. Note it
-  reports `memory.shortTerm = { type: 'DaprMastraCheckpointer' }`, which is
-  accurate about intent and ahead of the wiring.
+- **Registry metadata.** `getMetadata()` returns a _mostly_ correct record — the
+  examples print it — but nothing publishes it to a state store or agent
+  registry, and three of its fields are not configuration. `memory.shortTerm`
+  reports `{ type: 'DaprMastraCheckpointer' }`, accurate about intent and ahead
+  of the wiring. `agent.maxIterations` is hardcoded to `1` and `pubsub` is
+  `{ resourceName: '', broadcastTopic: null, agentTopic: null }` — both
+  `TODO(mastra-adapter)` in `mapper.ts`. Read those three as unset rather than
+  as settings: `inspect-agent.ts` builds its runner with `maxIterations: 10` and
+  will still print `1`.
 
-`grep -rn 'TODO(mastra-adapter)' src` lists what is left. `tests/e2e/` runs the
+`grep -rn 'TODO(mastra-adapter)' .` from the repo root lists what is left — six
+markers. Scoping it to `src` from this directory finds only three; the other
+three moved into `packages/core` with the durable loop. `tests/e2e/` runs the
 examples under a real sidecar in CI, so these claims stay honest.
 
 ## Install

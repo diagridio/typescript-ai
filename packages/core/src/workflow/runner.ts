@@ -8,7 +8,9 @@
  * This class owns everything that is identical across frameworks: the Dapr
  * workflow runtime lifecycle, the canonical workflow name, status/terminate/
  * purge passthroughs, telemetry setup and graceful shutdown. A framework
- * adapter subclasses it and implements the three abstract hooks.
+ * adapter subclasses it and implements the two abstract members:
+ * `registerWorkflowComponents` and `get mapper()`. `setupTelemetry` is
+ * concrete — overriding it is optional and the one existing adapter does not.
  */
 
 import type {

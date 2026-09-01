@@ -344,8 +344,14 @@ export function createModelInvoker(agent: MastraAgentLike) {
  * Build one invoker per tool, for the `invokeTool` activity.
  *
  * Arguments arrive as a JSON string produced by the model, i.e. from outside the
- * process, so they are validated against the tool's own schema before the body
- * runs. A tool that throws is reported as a tool error rather than an activity
+ * process. They are parsed with dangerous keys (`__proto__`, `constructor`)
+ * stripped unconditionally, and validated against the tool's schema **when it
+ * has one**. A tool with no `inputSchema` receives the parsed object as-is —
+ * `createTool` treats `inputSchema` as optional, so this is reachable;
+ * `createToolInvokers` emits a `DIAGRID_TOOL_NO_SCHEMA` warning at registration
+ * when it is the case.
+ *
+ * A tool that throws is reported as a tool error rather than an activity
  * failure — the model gets a chance to correct a bad call, which is not the same
  * thing as the infrastructure failing.
  */
@@ -438,7 +444,7 @@ export async function createToolInvokers(
         //
         // A throw from the tool body surfaces as an *activity failure*, which is
         // what lets the orchestrator retry it (see `ACTIVITY_MAX_ATTEMPTS` in
-        // ./workflow.ts) without involving the model at all. Returning it as a
+        // `@diagrid/agent-core`) without involving the model at all. Returning it as a
         // result instead would send every transient fault — a rate limit, a
         // dropped connection — on a full round trip through the LLM.
         //

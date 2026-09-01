@@ -20,7 +20,7 @@
  * `@dapr/dapr` into the runtime graph.
  *
  * The one value that used to live here — the `WorkflowRuntimeStatus` enum — has
- * moved to {@link ../status}, declared locally. Re-exporting it from
+ * moved to {@link ./status}, declared locally. Re-exporting it from
  * `@dapr/dapr` made that a *static* import of this package: a bare
  * `require('@diagrid/agent-mastra')` loaded ~136 `@dapr/dapr` modules and ~65
  * from `@grpc/grpc-js` before any adapter code ran, which also meant the
