@@ -61,7 +61,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@mastra/core": "1.57.0",
+    "@mastra/core": "1.63.0",
     "tsup": "8.5.1",
     "typescript": "6.0.3",
     "zod": "4.4.3"
