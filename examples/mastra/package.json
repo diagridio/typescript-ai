@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@diagrid/agent-mastra": "workspace:*",
-    "@mastra/core": "1.57.0",
+    "@mastra/core": "1.63.2",
     "zod": "4.4.3"
   },
   "devDependencies": {
