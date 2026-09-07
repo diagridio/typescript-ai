@@ -44,7 +44,10 @@ concurrency:
 jobs:
   e2e-ollama:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 30 was enough before Provision n8n types existed; a cache miss there
+    # (a fresh cache scope, or a packages/n8n/n8n-ci-ref.txt bump) adds a
+    # real n8n fetch + scoped install + build on top of everything else.
+    timeout-minutes: 35
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -59,6 +62,14 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # @diagrid/n8n's peers aren't real installs here (see
+      # packages/n8n/package.json's own "//peerDependenciesMeta" note) —
+      # without this, Build packages fails on `Cannot find module 'n8n-core'`.
+      - name: Provision n8n types
+        uses: ./.github/actions/provision-n8n-types
+        with:
+          node-version: "22"
 
       - name: Build packages
         run: pnpm build

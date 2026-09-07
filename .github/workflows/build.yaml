@@ -60,7 +60,10 @@ jobs:
   build:
     needs: lint
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # 20 was enough before Provision n8n types existed; a cache miss there
+    # (a fresh cache scope, or a packages/n8n/n8n-ci-ref.txt bump) adds a
+    # real n8n fetch + scoped install + build on top of everything else.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -84,6 +87,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # @diagrid/n8n's peers (n8n-core, n8n-workflow, @n8n/db, @n8n/di) are
+      # never installed above — see packages/n8n/package.json's own
+      # "//peerDependenciesMeta" note. Without this, both Type check and
+      # Build packages below fail on `Cannot find module 'n8n-core'` for
+      # every file that imports one of them.
+      - name: Provision n8n types
+        uses: ./.github/actions/provision-n8n-types
+        with:
+          node-version: ${{ matrix.node }}
+
       - name: Type check
         run: pnpm typecheck
 
@@ -100,6 +113,11 @@ jobs:
       # only discoverable after publishing. An earlier version put `types` above
       # `import`/`require`, so the shipped .d.cts was never used and CJS
       # consumers on `node16` got TS1479.
+      #
+      # @diagrid/n8n is deliberately not in this list: attw needs a real npm
+      # pack/install round-trip, and this package's five peers only resolve
+      # via the symlinks Provision n8n types just set up, which a `.pack()`
+      # of the tarball alone would not have.
       - name: Check published types resolve correctly
         if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
         # Pinned, not @latest: this runs on every PR, and an unpinned fetch means

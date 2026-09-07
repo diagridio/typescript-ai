@@ -34,6 +34,11 @@ lerna-debug.log*
 .turbo/
 .tsimp/
 
+# Throwaway n8n checkout that packages/n8n/scripts/ci-n8n-types.sh builds
+# real n8n types from — see packages/n8n/n8n-ci-ref.txt. CI restores/saves
+# this via actions/cache; never commit it.
+.n8n-ci-checkout/
+
 # Editors
 .idea/
 *.swp

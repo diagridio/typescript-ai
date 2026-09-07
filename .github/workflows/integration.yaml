@@ -38,6 +38,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # @diagrid/n8n's peers aren't real installs here (see
+      # packages/n8n/package.json's own "//peerDependenciesMeta" note) —
+      # without this, Build packages fails on `Cannot find module 'n8n-core'`.
+      - name: Provision n8n types
+        uses: ./.github/actions/provision-n8n-types
+        with:
+          node-version: "22"
+
       - name: Build packages
         run: pnpm build
 

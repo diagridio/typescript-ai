@@ -147,6 +147,44 @@ so the only path a genuine install ever takes is `require()` through the
 every time. It only bites a sibling-checkout absolute-path `--require`, which
 is why this section calls it out explicitly.
 
+### CI has no sibling checkout of its own — it builds a pinned, disposable one
+
+A from-scratch clone with nothing else done fails both `pnpm typecheck` and
+`pnpm build` with `Cannot find module 'n8n-core'` and similar, for every file
+that imports one of this package's five optional peers — there is no
+`link-n8n-dev-deps.sh` step above for CI to run, and no sibling n8n checkout
+sitting next to the runner's copy of this repo. `scripts/ci-n8n-types.sh` is
+what every CI workflow that runs `pnpm build` runs first instead: it
+shallow-fetches the single n8n commit pinned in `n8n-ci-ref.txt`, builds only
+the backend-internal closure `n8n-core`/`n8n-workflow`/`@n8n/db`/`@n8n/di`
+actually need (computed from turbo itself, not this monorepo's full ~1000
+packages — no `nodes-base`, no frontend, no `cli`), and symlinks — never
+copies; see the script's own doc comment for why a copy reintroduces the
+exact dual-instance problem below — the result into this package's
+`node_modules`, the same shape `link-n8n-dev-deps.sh` produces for a live
+checkout. It's idempotent and safe to run by hand too.
+
+This is deliberately not a replacement for a live checkout: it's pinned and
+disposable, good for exactly the typecheck/build/unit-test slice of CI, not
+for iterating against an n8n change or running the real end-to-end
+crash-recovery suite (`tests/e2e/n8n-crash-recovery*.integration.test.ts`),
+which still needs `N8N_CHECKOUT` pointing at a real, live, runnable install —
+see "Developing against a local n8n checkout" above.
+
+Two real alternative fixes were investigated before landing on this one, and
+both were reverted, not just skipped (see `package.json`'s own
+`//devDependencies` note for the full account): an ambient shorthand module
+declaration (`declare module 'n8n-workflow';`, falling back to `any`)
+conflicted with the real types whenever both were present in the same
+compilation (`TS2709: Cannot use namespace '...' as a type`); real, pinned npm
+devDependencies for the four statically-imported peers resolved but then hit
+pnpm installing n8n-core's and `@n8n/db`'s own copies of `n8n-workflow` as two
+structurally distinct, non-interchangeable peer-hashed instances (n8n's
+packages are built to be installed inside n8n's own cohesive workspace, not
+as independent top-level devDependencies elsewhere) — real
+`INode`/`ITaskData`/etc. "not assignable" errors with no actual bug behind
+them.
+
 ### A real one, not just a dev-path quirk: `import`-ing this package's ESM build never works
 
 Unlike the `.cjs`-vs-`.js` mix-up above, this one isn't specific to a
@@ -281,27 +319,13 @@ this was ported from; none is new:
 - **This package has never been published** — nothing currently stamps
   `version.ts` alongside `package.json`'s own version the way
   `.github/workflows/npm-release.yaml` does for `core`/`mastra` (`version.ts`).
-- **`pnpm typecheck` needs a linked sibling n8n checkout to pass.** Without
-  one (a from-scratch clone, CI included), `tsc` fails with `Cannot find
-module 'n8n-core'` and similar for every file that imports one of this
-  package's five optional peers — confirmed by actually removing
-  `scripts/link-n8n-dev-deps.sh`'s symlinks and clearing `.tsbuild`. Two real
-  fixes were investigated and both reverted, not just skipped (see
-  `package.json`'s own `//devDependencies` note for the full account): an
-  ambient shorthand module declaration (`declare module 'n8n-workflow';`,
-  falling back to `any`) conflicted with the real types whenever both were
-  present in the same compilation (`TS2709: Cannot use namespace '...' as a
-type`); real, pinned
-  npm devDependencies for the four statically-imported peers resolved but
-  then hit pnpm installing n8n-core's and `@n8n/db`'s own copies of
-  `n8n-workflow` as two structurally distinct, non-interchangeable peer-hashed
-  instances (n8n's packages are built to be installed inside n8n's own
-  cohesive workspace, not as independent top-level devDependencies elsewhere)
-  — real `INode`/`ITaskData`/etc. "not assignable" errors with no actual bug
-  behind them. This package can only be meaningfully type-checked (and, as
-  the whole rest of this README documents, only meaningfully _run_) against a
-  real, linked n8n checkout — the same requirement the original standalone
-  package it was ported from already had.
+- **`pnpm typecheck` / `pnpm build` need real n8n types, which need either a
+  linked sibling checkout or CI's own pinned, disposable one.** Neither is
+  optional — this package cannot be meaningfully type-checked, built, or (as
+  the whole rest of this README documents) run without real n8n types from
+  somewhere. See "CI has no sibling checkout of its own" above for what
+  actually provides them and the two rejected alternatives that came before
+  it.
 
 ## License
 

@@ -2,6 +2,10 @@
 # Copyright (c) 2026-Present Diagrid Inc.
 # SPDX-License-Identifier: BUSL-1.1
 #
+# For a live checkout you're actively developing against or running e2e
+# tests with. Just want `pnpm typecheck` / `pnpm build` to pass with no
+# checkout of your own — same as CI does it? Use ci-n8n-types.sh instead.
+#
 # Symlinks a local n8n checkout's five packages this package peer-depends on
 # directly into packages/n8n/node_modules — see package.json's own
 # "//devDependencies" comment for why this can't just be a `file:`

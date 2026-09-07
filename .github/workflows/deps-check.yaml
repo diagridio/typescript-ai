@@ -29,7 +29,10 @@ concurrency:
 jobs:
   deps-check:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # 15 was enough before Provision n8n types existed; a cache miss there
+    # (a fresh cache scope, or a packages/n8n/n8n-ci-ref.txt bump) adds a
+    # real n8n fetch + scoped install + build on top of everything else.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -61,6 +64,14 @@ jobs:
         run: |
           pnpm install --lockfile-only --ignore-scripts
           git diff --exit-code pnpm-lock.yaml
+
+      # @diagrid/n8n's peers aren't real installs here (see
+      # packages/n8n/package.json's own "//peerDependenciesMeta" note) —
+      # without this, Build packages fails on `Cannot find module 'n8n-core'`.
+      - name: Provision n8n types
+        uses: ./.github/actions/provision-n8n-types
+        with:
+          node-version: ${{ matrix.node }}
 
       # The isolation guard inspects the built bundles for inlined
       # dependencies, so the build has to happen first.

@@ -1,0 +1,11 @@
+# Pinned n8n commit that CI builds real n8n-core/n8n-workflow/@n8n/db/@n8n/di
+# types from (see scripts/ci-n8n-types.sh) — the read-only, no-sibling-checkout
+# counterpart to a developer's own live checkout (README.md's "Developing
+# against a local n8n checkout"). Chosen as the exact commit this package's
+# integration was last verified against.
+#
+# Bump deliberately, not silently: update the SHA below, then run
+# `packages/n8n/scripts/ci-n8n-types.sh` locally (or just push — CI runs the
+# same script) and confirm `pnpm typecheck` / `pnpm build` still pass against
+# the new commit before merging the bump.
+5a0b3f02c7c4a4bbe1b14c7261fa8dca8b59962d

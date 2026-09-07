@@ -147,8 +147,18 @@
     "That is a structural consequence of installing n8n's own",
     "tightly-interdependent packages outside n8n's own workspace, not",
     "something a version pin or a pnpm override can safely paper over without",
-    "significant, fragile upkeep. `pnpm typecheck` (and therefore CI's",
-    "build.yaml) is a real, open, honestly-documented gap for this package",
-    "without a linked sibling checkout — see README.md's own Scope section."
+    "significant, fragile upkeep.",
+    "",
+    "What actually resolves this for CI (and for anyone without a sibling",
+    "checkout) is scripts/ci-n8n-types.sh: a pinned, disposable n8n checkout",
+    "(n8n-ci-ref.txt), scoped-installed and scoped-built to just the closure",
+    "these four peers need, then symlinked in exactly like",
+    "link-n8n-dev-deps.sh does for a live one — never copied; a copy would",
+    "carry n8n-core's own internal symlink to n8n-workflow along with it and,",
+    "if dereferenced, reproduce the exact dual-instance problem above by a",
+    "different route. See README.md's 'CI has no sibling checkout of its",
+    "own' section for the full account, including why this is not a",
+    "substitute for a live checkout (it's read-only and pinned, not meant to",
+    "be developed against)."
   ]
 }
