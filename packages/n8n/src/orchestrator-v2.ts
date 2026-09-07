@@ -205,7 +205,9 @@ export async function* runN8nNodeOrchestratorV2(
 
     let pending: PendingNode[] = nodeExecutionStack.map((executeData) => ({
       node: executeData.node,
-      inputItems: (executeData.data['main'] ?? []).map((items) => items ?? []),
+      inputItems: (executeData.data['main'] ?? []).map(
+        (items: INodeExecutionData[] | null) => items ?? []
+      ),
       attempt: 1,
     }));
     const roundResults = new Map<string, CompletedNodeOutput>();

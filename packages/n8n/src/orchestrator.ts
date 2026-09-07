@@ -243,7 +243,9 @@ export async function* runN8nNodeOrchestrator(
       // recreateNodeExecutionStack only guarantees the *required* inputs are
       // present, not every declared one. Normalize to `[]` per index so the
       // activity always gets a plain INodeExecutionData[][].
-      inputItems: (executeData.data['main'] ?? []).map((items) => items ?? []),
+      inputItems: (executeData.data['main'] ?? []).map(
+        (items: INodeExecutionData[] | null) => items ?? []
+      ),
       attempt: 1,
     }));
     const roundResults = new Map<string, CompletedNodeOutput>();

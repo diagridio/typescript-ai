@@ -6,6 +6,7 @@ import type { ExecutionLifecycleHooks, WorkflowExecute } from 'n8n-core';
 import { createRunExecutionData, WorkflowOperationError } from 'n8n-workflow';
 import type {
   IExecuteData,
+  INodeExecutionData,
   IRun,
   IRunExecutionData,
   Workflow,
@@ -105,7 +106,9 @@ export async function runDurably(
     connections: workflow.connectionsBySourceNode,
     seed: initialStack.map((executeData) => ({
       nodeName: executeData.node.name,
-      outputItems: (executeData.data['main'] ?? []).map((items) => items ?? []),
+      outputItems: (executeData.data['main'] ?? []).map(
+        (items: INodeExecutionData[] | null) => items ?? []
+      ),
     })),
   };
 
