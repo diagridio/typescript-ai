@@ -67,7 +67,10 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: npm
-    timeout-minutes: 30
+    # 30 was enough before Provision n8n types existed; a cache miss there
+    # (a fresh cache scope, or a packages/n8n/n8n-ci-ref.txt bump) adds a
+    # real n8n fetch + scoped install + build on top of everything else.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -244,6 +247,16 @@ jobs:
 
       - name: Update lockfile
         run: pnpm install --lockfile-only --ignore-scripts
+
+      # @diagrid/n8n's five peers are never real installs (see
+      # packages/n8n/package.json's own "//peerDependenciesMeta" note) —
+      # without this, Type check/Build packages/Run linter below all fail on
+      # `n8n-core` etc., the last two as `error`-typed rather than a clean
+      # resolution error.
+      - name: Provision n8n types
+        uses: ./.github/actions/provision-n8n-types
+        with:
+          node-version: "24"
 
       # The full gate, against the versions about to be published.
       - name: Check formatting
