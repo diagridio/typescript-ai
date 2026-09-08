@@ -18,10 +18,19 @@ inputs:
 runs:
   using: composite
   steps:
-    # Keyed on the pinned ref's content, not a hand-bumped version number —
-    # editing n8n-ci-ref.txt is what invalidates this, nothing else has to.
+    # Not on Windows: actions/cache does not preserve symlinks there (a real,
+    # documented actions/cache limitation, not something this action can
+    # configure around) — pnpm's own workspace cross-links inside
+    # .n8n-ci-checkout (e.g. @n8n/backend-common/node_modules/@n8n/constants)
+    # silently vanish on restore, while the plain-file dist/*.d.ts output next
+    # to them survives untouched. The script's own dist-marker check then
+    # sees a "already built" checkout and skips straight to the symlink step
+    # below, shipping types that resolve but a runtime require() of the same
+    # package does not. Rebuilding fresh every time on Windows costs a few
+    # extra minutes; a cache that silently reintroduces this is worse.
     - name: Cache n8n type-checkout
       id: n8n-cache
+      if: runner.os != 'Windows'
       uses: actions/cache@v6.1.0
       with:
         path: .n8n-ci-checkout
@@ -30,7 +39,7 @@ runs:
     # Idempotent regardless of cache-hit: the script checks for the built
     # dist output itself and skips straight to the symlink step if it is
     # already there, so this is cheap on a hit and does the full
-    # fetch/install/build only on a miss.
+    # fetch/install/build only on a miss (always, on Windows, per above).
     - name: Provision real n8n types for @diagrid/n8n
       shell: bash
       run: packages/n8n/scripts/ci-n8n-types.sh
