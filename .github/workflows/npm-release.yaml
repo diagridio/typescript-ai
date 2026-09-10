@@ -190,23 +190,32 @@ jobs:
             fail=1
           fi
 
-          # Only *both* already published is a hard stop. Failing when either
-          # one is on the registry made the per-package idempotency skips below
+          # Only *all* already published is a hard stop. Failing when any one is
+          # on the registry made the per-package idempotency skips below
           # unreachable and broke the recovery this file's own header documents:
           # core published, mastra not, re-dispatch -> this loop trips -> exit,
           # and "Re-run failed jobs" re-runs the pre-flight identically. Because
           # npm versions are immutable the operator's only route was bumping the
           # version and abandoning the published core, which is precisely the
           # unrecoverable mid-release state this ordering exists to prevent.
+          #
+          # The threshold is counted rather than written down. A literal `2` was
+          # already stale the moment a third package existed, and it goes wrong
+          # in the quiet direction: an under-count makes a fully-published
+          # version look like a partial re-run, so the immutability error never
+          # fires and the operator finds out from the publish steps instead.
+          packages="@diagrid/agent-core @diagrid/agent-mastra @diagrid/n8n"
+          total=0
           published=0
-          for pkg in @diagrid/agent-core @diagrid/agent-mastra; do
+          for pkg in $packages; do
+            total=$((total + 1))
             if npm view "$pkg@$VERSION" version >/dev/null 2>&1; then
               echo "$pkg@$VERSION is already on the registry — the publish step will skip it"
               published=$((published + 1))
             fi
           done
-          if [ "$published" -eq 2 ]; then
-            echo "::error::both packages are already published at $VERSION — npm versions are immutable, so bump the version"
+          if [ "$published" -eq "$total" ]; then
+            echo "::error::all $total packages are already published at $VERSION — npm versions are immutable, so bump the version"
             fail=1
           fi
 
@@ -308,8 +317,8 @@ jobs:
       #
       # So the recoverable failure is the one placed first.
       #
-      # Publish core before mastra: mastra depends on core's exact version, and
-      # npm resolves that at install time, so the reverse order would leave a
+      # Publish core first: both mastra and n8n depend on core's exact version,
+      # and npm resolves that at install time, so any other order would leave a
       # published package whose dependency does not exist yet.
       - name: Publish @diagrid/agent-core
         if: ${{ !inputs.dry_run }}
@@ -338,6 +347,33 @@ jobs:
             exit 0
           fi
           npm publish "dist-packs/diagrid-agent-mastra-$VERSION.tgz" \
+            --provenance --access public --tag "$NPM_DIST_TAG"
+
+      # @diagrid/n8n is packed by the glob above like the other two, so before
+      # this step existed its tarball was built, verified, and then thrown away:
+      # a run would bump n8n's version, commit it, tag the release and publish
+      # nothing. The tag would then claim a release the registry did not have,
+      # and npm versions being immutable there is no clean way back.
+      #
+      # FIRST PUBLISH IS MANUAL, and this step cannot do it. Trusted publishing
+      # is configured on a package's own npm settings page, so the package has
+      # to exist before OIDC can be pointed at it — the same chicken-and-egg
+      # that made 0.1.0 of core and mastra a by-hand publish with no provenance.
+      # Until @diagrid/n8n exists on the registry and has a trusted publisher
+      # configured (diagridio / typescript-ai / npm-release.yaml, environment
+      # `npm`, matching the other two), this step will fail on credentials.
+      - name: Publish @diagrid/n8n
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ inputs.version }}
+          # NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}   # only for option (b)
+        run: |
+          set -euo pipefail
+          if npm view "@diagrid/n8n@$VERSION" version >/dev/null 2>&1; then
+            echo "@diagrid/n8n@$VERSION already published — skipping"
+            exit 0
+          fi
+          npm publish "dist-packs/diagrid-n8n-$VERSION.tgz" \
             --provenance --access public --tag "$NPM_DIST_TAG"
 
       # Only now that npm is consistent: record the release in git.
