@@ -1,0 +1,45 @@
+name: Provision n8n types
+description: >-
+  Builds real n8n-core/n8n-workflow/@n8n/db/@n8n/di types from the commit
+  pinned in packages/n8n/n8n-ci-ref.txt and symlinks them into
+  packages/n8n/node_modules, so `pnpm typecheck` / `pnpm build` resolve real
+  n8n types with no sibling n8n checkout of your own. Every workflow that
+  runs `pnpm build` needs this first — see
+  packages/n8n/scripts/ci-n8n-types.sh for what it actually does and why.
+
+inputs:
+  node-version:
+    description: >-
+      Node version this job runs under. Part of the cache key: n8n's own
+      install compiles a handful of native modules, which are ABI-specific
+      per Node version (and OS, already covered by runner.os).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Not on Windows: actions/cache does not preserve symlinks there (a real,
+    # documented actions/cache limitation, not something this action can
+    # configure around) — pnpm's own workspace cross-links inside
+    # .n8n-ci-checkout (e.g. @n8n/backend-common/node_modules/@n8n/constants)
+    # silently vanish on restore, while the plain-file dist/*.d.ts output next
+    # to them survives untouched. The script's own dist-marker check then
+    # sees a "already built" checkout and skips straight to the symlink step
+    # below, shipping types that resolve but a runtime require() of the same
+    # package does not. Rebuilding fresh every time on Windows costs a few
+    # extra minutes; a cache that silently reintroduces this is worse.
+    - name: Cache n8n type-checkout
+      id: n8n-cache
+      if: runner.os != 'Windows'
+      uses: actions/cache@v6.1.0
+      with:
+        path: .n8n-ci-checkout
+        key: n8n-ci-types-${{ runner.os }}-node${{ inputs.node-version }}-${{ hashFiles('packages/n8n/n8n-ci-ref.txt') }}
+
+    # Idempotent regardless of cache-hit: the script checks for the built
+    # dist output itself and skips straight to the symlink step if it is
+    # already there, so this is cheap on a hit and does the full
+    # fetch/install/build only on a miss (always, on Windows, per above).
+    - name: Provision real n8n types for @diagrid/n8n
+      shell: bash
+      run: packages/n8n/scripts/ci-n8n-types.sh

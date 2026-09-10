@@ -1,0 +1,47 @@
+# Dapr components for the n8n example, running locally under `dapr run`.
+#
+# Mirrors examples/mastra/resources/statestore.yaml exactly (down to the
+# names): a Catalyst project provisioned with `--deploy-managed-kv
+# --enable-managed-workflow` gives you these same two components, so
+# switching between the two run paths needs no configuration change.
+#
+#   workflows-state  state store for the Dapr workflow engine (actor state store)
+#   kvstore          state store for the idempotency ledger (packages/n8n/src/ledger.ts,
+#                     via @diagrid/agent-core's DaprStateStore — DEFAULT_STORE_NAME)
+#
+# Two components rather than one because Dapr permits only a single actor
+# state store, and `kvstore` is not it: the workflow engine claims that role
+# via `workflows-state`, while the ledger does plain key/value work against
+# `kvstore`.
+#
+# Redis on localhost:6379 is what `dapr init` gives you. Swap in your own
+# state store for anything real.
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: workflows-state
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: "localhost:6379"
+    - name: redisPassword
+      value: ""
+    # The workflow engine is built on actors, so exactly one component in the
+    # project must carry this flag.
+    - name: actorStateStore
+      value: "true"
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: kvstore
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: "localhost:6379"
+    - name: redisPassword
+      value: ""

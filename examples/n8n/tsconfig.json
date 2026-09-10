@@ -1,0 +1,13 @@
+{
+  // The examples are type-checked by the workspace `tsc --build`, which is the
+  // point of making them a workspace member: they consume the adapter's public
+  // API the way a user does, so the build breaks the moment that API drifts.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../../.tsbuild/example-n8n",
+    "tsBuildInfoFile": "../../.tsbuild/example-n8n.tsbuildinfo"
+  },
+  "include": ["*.ts"],
+  "references": [{ "path": "../../packages/n8n" }]
+}

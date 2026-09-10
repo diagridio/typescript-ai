@@ -12,6 +12,24 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/coverage/**',
       '.tsbuild/**',
+      // The disposable n8n checkout packages/n8n/scripts/ci-n8n-types.sh
+      // builds real n8n types from (see that script's own doc comment) —
+      // third-party source, not ours to lint, and n8n's own nested
+      // `eslint.config.mjs` files (e.g. packages/@n8n/nodes-langchain's)
+      // import n8n-internal eslint plugins this workspace doesn't have, so
+      // ESLint's flat-config nested-config discovery crashes on
+      // `ERR_MODULE_NOT_FOUND` for one if this tree isn't ignored outright.
+      '.n8n-ci-checkout/**',
+      // Deliberately plain CommonJS, not TypeScript, and deliberately outside
+      // every tsconfig's `include` — see this file's own doc comment for why
+      // (a test-only node-type fixture, loaded at runtime via a plain
+      // `require()` from a path in an env var, mirroring
+      // n8n-dapr-durable's own un-typechecked test/flaky-node.js).
+      'examples/n8n/fixtures/*.cjs',
+      // Same reasoning: a --require'd Node compatibility shim for
+      // n8n-crash-recovery.integration.test.ts, deliberately plain
+      // CommonJS and outside tests/tsconfig.json's own project.
+      'tests/e2e/n8n-helpers/*.cjs',
     ],
   },
   js.configs.recommended,
