@@ -55,13 +55,15 @@ Install the shared runtime plus the adapter for your framework:
 
 ```bash
 # For Mastra
-pnpm add @diagrid/agent-mastra @mastra/core
+pnpm add @diagrid/agent-mastra @mastra/core zod
 ```
 
 `@diagrid/agent-core` comes in as a dependency of the adapter; you only need to
 install it directly if you are writing an adapter of your own. The framework
-SDK (`@mastra/core`) is a **peer dependency**, so your application controls its
-version and installing one adapter never pulls in another framework.
+SDK (`@mastra/core`) and `zod` are **peer dependencies**, so your application
+controls their versions and installing one adapter never pulls in another
+framework. Both must be named on the install line, since a peer dependency is
+not installed for you.
 
 ## Prerequisites
 

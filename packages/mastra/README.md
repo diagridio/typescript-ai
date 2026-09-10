@@ -56,12 +56,13 @@ examples under a real sidecar in CI, so these claims stay honest.
 ## Install
 
 ```bash
-pnpm add @diagrid/agent-mastra @mastra/core
+pnpm add @diagrid/agent-mastra @mastra/core zod
 ```
 
 `@mastra/core` and `zod` are **peer** dependencies: your application owns their
 versions, and installing this adapter never pulls another framework's SDK into
-your tree.
+your tree. Both have to be named on the install line — a peer dependency is not
+installed for you.
 
 - Node.js ≥ 22.13
 - `@mastra/core` ≥ 1.50 < 2
