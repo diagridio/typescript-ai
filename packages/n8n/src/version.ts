@@ -7,9 +7,14 @@
  * Kept as a source constant (rather than read from `package.json` at runtime)
  * so it survives bundling and works identically from ESM and CJS.
  *
- * TODO(n8n-integration): this package has never been published, so nothing
- * currently stamps this alongside `package.json`'s own version the way
- * `.github/workflows/npm-release.yaml` does for `core`/`mastra`. Wire it into
- * that workflow (or an n8n-specific one) before a real release.
+ * `.github/workflows/npm-release.yaml` rewrites this line together with every
+ * `package.json` version. It always did: the bump and verify loops glob every
+ * package's `version.ts`, so this file was already being stamped before the
+ * package had a publish step. What was missing was the publish — the tarball
+ * was packed, checked, and discarded. That step exists now.
+ *
+ * The package still has to be published BY HAND once before the workflow can
+ * take over, because npm trusted publishing is configured on a package's own
+ * settings page and the package has to exist before OIDC can be pointed at it.
  */
 export const VERSION = '0.1.1';
