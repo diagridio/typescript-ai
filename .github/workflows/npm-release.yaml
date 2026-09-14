@@ -76,7 +76,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v6.0.10
+      - uses: pnpm/action-setup@v6.1.0
 
       # Node 24, not 22, and the version matters: npm OIDC trusted publishing
       # needs npm >= 11.5.1. Node 22 ships 10.9.8, which cannot do it — and with
