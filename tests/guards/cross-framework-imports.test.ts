@@ -363,6 +363,147 @@ describe('static dependency isolation', () => {
 });
 
 /**
+ * The identity middleware's own web frameworks.
+ *
+ * `@diagrid/agent-core` ships an Express middleware and a Fastify plugin
+ * (`packages/core/src/identity/express.ts` and `.../fastify.ts`), which is a
+ * standing temptation to depend on one or both. It must not: core is what
+ * every adapter and every consumer installs, and a mandatory Express would be
+ * dead weight in an app that serves over Fastify — or over neither, since a
+ * pub/sub-triggered agent has no inbound HTTP at all.
+ *
+ * The arrangement that makes that work is an *optional* peer plus a
+ * type-only import, which `verbatimModuleSyntax` erases before the bundle is
+ * written. Both halves are asserted, because either one alone is decorative:
+ * a manifest can declare the peer correctly while the code imports the
+ * framework for real, and the code can import nothing while the manifest
+ * forces an install anyway.
+ */
+const IDENTITY_WEB_FRAMEWORKS = ['express', 'fastify'] as const;
+
+describe('identity web frameworks stay optional', () => {
+  it.each(IDENTITY_WEB_FRAMEWORKS)(
+    'core declares %s as an optional peer, not a dependency',
+    (framework) => {
+      const manifest = readManifest(CORE_PACKAGE_DIR) as PackageManifest & {
+        peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+      };
+
+      expect(manifest.dependencies ?? {}).not.toHaveProperty(framework);
+      expect(manifest.peerDependencies ?? {}).toHaveProperty(framework);
+      expect(manifest.peerDependenciesMeta?.[framework]?.optional).toBe(true);
+      // A devDependency, so the adapters are type-checked and tested against
+      // a real version of each framework rather than against `any`.
+      expect(manifest.devDependencies ?? {}).toHaveProperty(framework);
+    }
+  );
+
+  it.each(IDENTITY_WEB_FRAMEWORKS)(
+    'no adapter drags %s in either',
+    (framework) => {
+      for (const adapter of ADAPTERS) {
+        const manifest = readManifest(adapter.dir);
+
+        expect(manifest.dependencies ?? {}).not.toHaveProperty(framework);
+      }
+    }
+  );
+});
+
+/**
+ * The subpath entry points the two adapters ship as.
+ *
+ * `fastify-plugin` rides here too: it is a two-kilobyte marker rather than
+ * Fastify itself, but it is a *value* import, so before the adapters moved to
+ * their own entries it sat at the top of `dist/index.js` and every consumer
+ * loaded it — including one serving over Express, or over no HTTP at all.
+ */
+const IDENTITY_SUBPATH_BASES = ['express', 'fastify'] as const;
+const FASTIFY_PLUGIN_PACKAGE = 'fastify-plugin';
+
+describe.skipIf(!existsSync(distEntry(CORE_PACKAGE_DIR)))(
+  'identity web frameworks stay out of the core entry point',
+  () => {
+    it.each(IDENTITY_WEB_FRAMEWORKS)(
+      'core never imports %s at runtime',
+      (framework) => {
+        // An app that serves over Fastify, or over neither, must not load
+        // Express to import this package.
+        for (const path of artefacts(CORE_PACKAGE_DIR).filter((p) =>
+          /\.c?js$/.test(p)
+        )) {
+          expect(
+            importsPkg(path, framework),
+            `${path} imports ${framework} — the adapters must import only its types`
+          ).toBe(false);
+        }
+      }
+    );
+
+    it.each(IDENTITY_WEB_FRAMEWORKS)(
+      'the core declarations never name %s either',
+      (framework) => {
+        // The half that was mitigated with "skipLibCheck is on in practice"
+        // and should not have been: `tsconfig.base.json` governs this repo,
+        // not a consumer's, and `tsc`'s own default for `skipLibCheck` is
+        // `false`. A consumer on a plain tsconfig with neither framework
+        // installed gets TS2307 out of `dist/index.d.ts` — on a package they
+        // are using for workflows and may never serve HTTP with at all.
+        //
+        // `RequestHandler` and `FastifyPluginCallback` genuinely cannot be
+        // described without naming where they come from, so the fix is not to
+        // erase them but to keep them out of the barrel: they live in
+        // `dist/express.d.ts` and `dist/fastify.d.ts`, which only a consumer
+        // who imported the matching subpath resolves.
+        for (const path of artefacts(CORE_PACKAGE_DIR).filter((p) =>
+          /\.d\.c?ts$/.test(p)
+        )) {
+          expect(
+            importsPkg(path, framework),
+            `${path} names ${framework} — it belongs in the ./${framework} subpath entry`
+          ).toBe(false);
+        }
+      }
+    );
+
+    it('never loads fastify-plugin from the core entry point', () => {
+      for (const path of artefacts(CORE_PACKAGE_DIR).filter((p) =>
+        /\.c?js$/.test(p)
+      )) {
+        expect(
+          importsPkg(path, FASTIFY_PLUGIN_PACKAGE),
+          `${path} imports ${FASTIFY_PLUGIN_PACKAGE} — it belongs in the ./fastify subpath entry`
+        ).toBe(false);
+      }
+    });
+
+    it('publishes no global namespace augmentation', () => {
+      // `declare global { namespace Express { interface Request { user } } }`
+      // is a hard TS2717 against `@types/passport`, which declares the same
+      // property as `Express.User`. A library must not claim a generic name in
+      // a global namespace at all — hence `getVerifiedUser(req)`.
+      for (const base of ['index', ...IDENTITY_SUBPATH_BASES]) {
+        for (const path of artefacts(CORE_PACKAGE_DIR, base).filter((p) =>
+          /\.d\.c?ts$/.test(p)
+        )) {
+          expect(
+            readFileSync(path, 'utf8'),
+            `${path} augments a global namespace`
+          ).not.toMatch(/declare\s+global\s*\{/);
+        }
+      }
+    });
+
+    it.each(IDENTITY_SUBPATH_BASES)(
+      'ships the ./%s subpath as its own artefact',
+      (base) => {
+        expect(artefacts(CORE_PACKAGE_DIR, base)).toHaveLength(4);
+      }
+    );
+  }
+);
+
+/**
  * `@diagrid/n8n`'s own real shape — not an `AdapterSpec`, so not covered by
  * the block above, but not exempt either. Asserts what is ACTUALLY true of
  * this package (core + `@dapr/dapr` at runtime, five n8n-specific peers)

@@ -156,3 +156,59 @@ export type {
   DaprAgentCheckpointerOptions,
   SaveCheckpointArgs,
 } from './state/checkpointer';
+
+// --- App-side identity -----------------------------------------------------
+// The framework-agnostic half only. The Express middleware and the Fastify
+// plugin are subpath entry points of their own — `@diagrid/agent-core/express`
+// and `@diagrid/agent-core/fastify` — because their declarations name `express`
+// and `fastify` even though their bundles do not, and a consumer who has
+// neither installed must not have to resolve either to type-check this package.
+export {
+  hasScope,
+  type OAuthConfig,
+  type TokenClaims,
+  type VerifiedUser,
+} from './identity/types';
+
+export {
+  IdentityNotConfiguredError,
+  OAuthErrorCodes,
+  TokenVerificationError,
+  VerifierNotReadyError,
+  type OAuthErrorCode,
+} from './identity/errors';
+
+export {
+  BEARER_PREFIX,
+  USER_TOKEN_HEADER,
+  currentUserToken,
+  runWithUserToken,
+} from './identity/outbound';
+
+// The advertised way to make an outbound on-behalf-of call. The
+// header-assembling helper behind it is deliberately not re-exported: an app
+// that sets the header itself also has to clear it and check the origin, which
+// is what this surface exists to handle.
+export {
+  attachIdentityHeaders,
+  createIdentityFetch,
+  type IdentityFetchInit,
+} from './identity/fetch';
+
+export {
+  ALLOWED_ALGORITHMS,
+  CATALYST_DAPR_HTTP_PORT_ENV,
+  CLOCK_SKEW_SECONDS,
+  DAPR_API_TOKEN_ENV,
+  DAPR_HTTP_ENDPOINT_ENV,
+  DAPR_HTTP_PORT_ENV,
+  DP_SENTRY_AUDIENCE_ENV,
+  DP_SENTRY_ISSUER_ENV,
+  JWKS_CACHE_LIFETIME_SECONDS,
+  JwksVerifier,
+  REQUIRED_CLAIMS,
+  buildVerifier,
+  type BuildVerifierOptions,
+  type JwksVerifierOptions,
+  type TokenVerifier,
+} from './identity/verifier';

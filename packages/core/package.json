@@ -23,6 +23,16 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "express": [
+        "./dist/express.d.ts"
+      ],
+      "fastify": [
+        "./dist/fastify.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
       "import": {
@@ -32,6 +42,26 @@
       "require": {
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
+      }
+    },
+    "./express": {
+      "import": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      },
+      "require": {
+        "types": "./dist/express.d.cts",
+        "default": "./dist/express.cjs"
+      }
+    },
+    "./fastify": {
+      "import": {
+        "types": "./dist/fastify.d.ts",
+        "default": "./dist/fastify.js"
+      },
+      "require": {
+        "types": "./dist/fastify.d.cts",
+        "default": "./dist/fastify.cjs"
       }
     },
     "./package.json": "./package.json"
@@ -59,14 +89,29 @@
     "@opentelemetry/exporter-trace-otlp-grpc": "0.221.0",
     "@opentelemetry/resources": "2.10.0",
     "@opentelemetry/sdk-trace-node": "2.10.0",
-    "@opentelemetry/semantic-conventions": "1.43.0"
+    "@opentelemetry/semantic-conventions": "1.43.0",
+    "fastify-plugin": "6.0.0",
+    "jose": "6.2.12"
   },
   "devDependencies": {
+    "@types/express": "5.0.6",
+    "express": "5.2.1",
+    "fastify": "5.12.3",
     "tsup": "8.5.1",
     "typescript": "6.0.3",
     "zod": "4.4.3"
   },
   "peerDependencies": {
+    "express": "^5.0.0",
+    "fastify": "^5.0.0",
     "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    }
   }
 }

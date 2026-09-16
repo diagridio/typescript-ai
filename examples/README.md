@@ -7,9 +7,10 @@ install once from the root, and run any script directly.
 pnpm install
 ```
 
-| Framework                   | Directory                                         | What's inside                                         |
-| --------------------------- | ------------------------------------------------- | ----------------------------------------------------- |
-| [Mastra](https://mastra.ai) | [`mastra/`](mastra/) — [README](mastra/README.md) | Agent inspection, simple agent, crash recovery, retry |
+| Framework                        | Directory                                               | What's inside                                                      |
+| -------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------ |
+| [Mastra](https://mastra.ai)      | [`mastra/`](mastra/) — [README](mastra/README.md)       | Agent inspection, simple agent, crash recovery, retry              |
+| [Express](https://expressjs.com) | [`identity/`](identity/) — [README](identity/README.md) | Verified callers: inbound token verification, outbound propagation |
 
 Adding an adapter? Add an `examples/<framework>/` directory alongside it. The
 examples are pnpm workspace members and are type-checked by `pnpm typecheck`, so
