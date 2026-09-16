@@ -42,3 +42,8 @@ autoInstallPeers: false
 # — this is a same-major patch bump, not a version ajv wasn't built for.
 overrides:
   fast-uri: ^3.1.7
+  # Same gate, same shape: js-yaml 3.15.1 (GHSA-2883-xcg3-v3hh, fixed in
+  # 3.15.2) reaches the tree through @mastra/core > gray-matter, which declares
+  # `^3.13.1` — so this is a same-major patch bump. Nothing in the workspace
+  # wants js-yaml 4 or 5, so the unscoped override cannot strand another major.
+  js-yaml: ^3.15.2
