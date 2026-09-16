@@ -710,6 +710,23 @@ describe('buildVerifier', () => {
     expect(coordinates.jwksUri).toBe(JWKS_URI);
   });
 
+  it('trims a run of trailing slashes without backtracking', async () => {
+    // Trimming is a scan rather than a `/\/+$/` match. That pattern retries
+    // from every slash when the match ultimately fails, so a run of slashes
+    // followed by anything else costs O(n²): 50k of them measured at ~900ms
+    // against 0.01ms for the scan. The value is configuration or a sidecar
+    // response, so the worst case is reachable.
+    const issuer = `https://sentry.acme${'/'.repeat(50_000)}x`;
+
+    const started = performance.now();
+    const coordinates = await resolveCoordinates({ issuer });
+    const elapsed = performance.now() - started;
+
+    // Nothing to trim — the run does not reach the end.
+    expect(coordinates.issuer).toBe(issuer);
+    expect(elapsed).toBeLessThan(100);
+  });
+
   it('trims a trailing slash off an issuer read from the environment', async () => {
     // How an operator actually hits it: `DIAGRID_DP_SENTRY_ISSUER` copied out
     // of a browser's address bar, or templated with a trailing separator.

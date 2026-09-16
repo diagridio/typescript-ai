@@ -71,8 +71,8 @@ const METADATA_TIMEOUT_MS = 5_000;
 /** Header a remote sidecar authenticates the metadata request with. */
 const API_TOKEN_HEADER = 'dapr-api-token';
 
-/** Trailing slashes on a configured endpoint, which must not reach the path. */
-const TRAILING_SLASHES = /\/+$/;
+/** `/`, compared by code unit so trimming needs no regex. */
+const SLASH_CHAR_CODE = 47;
 
 /** Path appended to an issuer that did not publish its own `jwks_uri`. */
 const JWKS_PATH = '/jwks.json';
@@ -613,9 +613,20 @@ function defaultJwksUri(issuer: string): string {
   return `${trimTrailingSlashes(issuer)}${JWKS_PATH}`;
 }
 
-/** An endpoint without the trailing slashes that must not reach a path. */
+/**
+ * An endpoint without the trailing slashes that must not reach a path.
+ *
+ * Scanned rather than matched with `/\/+$/`: that pattern backtracks on an
+ * endpoint of many slashes, and the value comes from configuration or from a
+ * sidecar response.
+ */
 function trimTrailingSlashes(value: string): string {
-  return value.replace(TRAILING_SLASHES, '');
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === SLASH_CHAR_CODE) {
+    end -= 1;
+  }
+
+  return value.slice(0, end);
 }
 
 /**
