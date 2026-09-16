@@ -26,6 +26,15 @@ const MANAGED_ENV_VARS = [
   'DAPR_HOST',
   'DAPR_GRPC_PORT',
   'DAPR_API_TOKEN',
+  // The identity verifier's discovery chain. A developer who happens to have
+  // a sidecar port or an issuer exported would otherwise turn the
+  // "refuses to build when nothing supplies an issuer" case green by
+  // supplying one.
+  'DAPR_HTTP_PORT',
+  'CATALYST_DAPR_HTTP_PORT',
+  'DAPR_HTTP_ENDPOINT',
+  'DIAGRID_DP_SENTRY_ISSUER',
+  'DIAGRID_DP_SENTRY_AUDIENCE',
 ] as const;
 
 let saved: Record<string, string | undefined> = {};

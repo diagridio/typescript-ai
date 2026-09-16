@@ -27,7 +27,7 @@
  */
 
 import { createRequire } from 'node:module';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -51,6 +51,13 @@ const ARTIFACTS: readonly Artifact[] = [
       'DaprStateStore',
       'WorkflowRuntimeStatus',
       'buildWorkflowName',
+      // The advertised outbound surface. `outboundIdentityHeaders` used to be
+      // named here; it is module-internal now, so asserting its presence in the
+      // bundle would assert the opposite of what the package promises.
+      'createIdentityFetch',
+      'attachIdentityHeaders',
+      'hasScope',
+      'OAuthErrorCodes',
       'VERSION',
     ],
   },
@@ -69,6 +76,72 @@ const ARTIFACTS: readonly Artifact[] = [
 
 const distFile = (pkg: string, file: string) =>
   join(ROOT, 'packages', pkg, 'dist', file);
+
+/**
+ * The core's subpath entry points.
+ *
+ * `@diagrid/agent-core/express` and `@diagrid/agent-core/fastify` are separate
+ * artefacts, not barrel re-exports, so nothing above would notice either one
+ * disappearing — and they are the most likely thing a bundling change drops,
+ * since neither imports its framework as a value.
+ */
+const CORE_SUBPATHS: readonly {
+  readonly base: string;
+  readonly expected: readonly string[];
+}[] = [
+  { base: 'express', expected: ['oauthMiddleware', 'getVerifiedUser'] },
+  { base: 'fastify', expected: ['oauthPlugin', 'getVerifiedUser'] },
+];
+
+describe.each(CORE_SUBPATHS)('core ./$base subpath', ({ base, expected }) => {
+  it('has been built', () => {
+    for (const extension of ['js', 'cjs', 'd.ts', 'd.cts']) {
+      expect(
+        existsSync(distFile('core', `${base}.${extension}`)),
+        `packages/core/dist/${base}.${extension} is missing — run \`pnpm build\` first`
+      ).toBe(true);
+    }
+  });
+
+  it('loads as CommonJS with its exports intact', () => {
+    const loaded = require_(distFile('core', `${base}.cjs`)) as Record<
+      string,
+      unknown
+    >;
+
+    for (const name of expected) {
+      expect(loaded[name], `${name} is missing from ${base}.cjs`).toBeDefined();
+    }
+  });
+
+  it('loads as ESM with its exports intact', async () => {
+    const loaded = (await import(
+      pathToFileURL(distFile('core', `${base}.js`)).href
+    )) as Record<string, unknown>;
+
+    for (const name of expected) {
+      expect(loaded[name], `${name} is missing from ${base}.js`).toBeDefined();
+    }
+  });
+
+  it('is reachable through the exports map', () => {
+    // The map is the half that shipped broken once already. A subpath that is
+    // built but not exported resolves to ERR_PACKAGE_PATH_NOT_EXPORTED for
+    // every consumer while every by-path assertion above still passes.
+    const manifest = JSON.parse(
+      readFileSync(join(ROOT, 'packages/core/package.json'), 'utf8')
+    ) as {
+      exports: Record<
+        string,
+        { import?: { types?: string; default?: string }; require?: unknown }
+      >;
+    };
+    const entry = manifest.exports[`./${base}`];
+
+    expect(entry?.import?.default).toBe(`./dist/${base}.js`);
+    expect(entry?.import?.types).toBe(`./dist/${base}.d.ts`);
+  });
+});
 
 describe.each(ARTIFACTS)('$pkg dist', ({ pkg, expected }) => {
   // Deliberately a failure, not a skip: `make ci` and every CI lane build before

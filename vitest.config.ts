@@ -16,6 +16,14 @@ const resolve = (path: string) => fileURLToPath(new URL(path, import.meta.url));
  * against real source lines rather than bundles.
  */
 const alias = {
+  // Longest first: Vite matches string aliases by prefix, so a bare
+  // '@diagrid/agent-core' listed above these would swallow the subpaths.
+  '@diagrid/agent-core/express': resolve(
+    './packages/core/src/identity/express.ts'
+  ),
+  '@diagrid/agent-core/fastify': resolve(
+    './packages/core/src/identity/fastify.ts'
+  ),
   '@diagrid/agent-core': resolve('./packages/core/src/index.ts'),
   '@diagrid/agent-mastra': resolve('./packages/mastra/src/index.ts'),
   '@diagrid/n8n': resolve('./packages/n8n/src/index.ts'),
