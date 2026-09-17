@@ -332,7 +332,7 @@ jobs:
             echo "@diagrid/agent-core@$VERSION already published — skipping"
             exit 0
           fi
-          npm publish "dist-packs/diagrid-agent-core-$VERSION.tgz" \
+          npm publish "./dist-packs/diagrid-agent-core-$VERSION.tgz" \
             --provenance --access public --tag "$NPM_DIST_TAG"
 
       - name: Publish @diagrid/agent-mastra
@@ -346,7 +346,7 @@ jobs:
             echo "@diagrid/agent-mastra@$VERSION already published — skipping"
             exit 0
           fi
-          npm publish "dist-packs/diagrid-agent-mastra-$VERSION.tgz" \
+          npm publish "./dist-packs/diagrid-agent-mastra-$VERSION.tgz" \
             --provenance --access public --tag "$NPM_DIST_TAG"
 
       # @diagrid/n8n is packed by the glob above like the other two, so before
@@ -373,7 +373,7 @@ jobs:
             echo "@diagrid/n8n@$VERSION already published — skipping"
             exit 0
           fi
-          npm publish "dist-packs/diagrid-n8n-$VERSION.tgz" \
+          npm publish "./dist-packs/diagrid-n8n-$VERSION.tgz" \
             --provenance --access public --tag "$NPM_DIST_TAG"
 
       # Only now that npm is consistent: record the release in git.
@@ -386,8 +386,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json packages/*/package.json packages/*/src/version.ts pnpm-lock.yaml
-          git commit -m "chore: release v$VERSION"
-          git push origin HEAD:main
+          if git diff --cached --quiet; then
+            echo "main is already at $VERSION — nothing to commit"
+          else
+            git commit -m "chore: release v$VERSION"
+            git push origin HEAD:main
+          fi
           git tag -a "v$VERSION" -m "Release v$VERSION"
           git push origin "v$VERSION"
 
