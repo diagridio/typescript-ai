@@ -110,6 +110,17 @@ export default tseslint.config(
     },
   },
 
+  // Release tooling: plain Node scripts outside every tsconfig, so there is no
+  // type information for the type-aware rules to work with, and Node's globals
+  // have to be declared rather than inferred.
+  {
+    files: ['scripts/*.mjs'],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      globals: { console: 'readonly', process: 'readonly' },
+    },
+  },
+
   // Must stay last: turns off every stylistic rule Prettier owns.
   prettier
 );

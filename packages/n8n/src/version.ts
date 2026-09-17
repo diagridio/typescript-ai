@@ -17,4 +17,4 @@
  * take over, because npm trusted publishing is configured on a package's own
  * settings page and the package has to exist before OIDC can be pointed at it.
  */
-export const VERSION = '0.1.1';
+export const VERSION = '0.2.0';
