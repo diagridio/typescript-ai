@@ -1,6 +1,6 @@
 {
   "name": "@diagrid/n8n",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Durable execution of n8n workflow node runs on Dapr Workflows",
   "keywords": [
     "dapr",
