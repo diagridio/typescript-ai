@@ -228,9 +228,9 @@ jobs:
           set -euo pipefail
           # Root manifest is private, but keep it in step so the repo has one
           # version number, matching python-ai's root meta-package.
-          pnpm version "$VERSION" --no-git-tag-version --allow-same-version
+          pnpm version "$VERSION" --no-git-tag-version --allow-same-version --no-git-checks
           pnpm -r --filter "./packages/*" exec \
-            pnpm version "$VERSION" --no-git-tag-version --allow-same-version
+            pnpm version "$VERSION" --no-git-tag-version --allow-same-version --no-git-checks
           # version.ts is a source constant so it survives bundling; it has to
           # move with the manifests or `VERSION` lies at runtime.
           for f in packages/*/src/version.ts; do
