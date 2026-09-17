@@ -221,41 +221,28 @@ jobs:
 
           exit "$fail"
 
-      - name: Bump versions across the workspace
+      # The bump is not this workflow's job. Land it on main in an ordinary PR,
+      # then dispatch that version. This reads main rather than writing to it,
+      # so nothing here needs to push to a protected branch.
+      - name: Verify main carries this version
         env:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          # Root manifest is private, but keep it in step so the repo has one
-          # version number, matching python-ai's root meta-package.
-          pnpm version "$VERSION" --no-git-tag-version --allow-same-version --no-git-checks
-          pnpm -r --filter "./packages/*" exec \
-            pnpm version "$VERSION" --no-git-tag-version --allow-same-version --no-git-checks
-          # version.ts is a source constant so it survives bundling; it has to
-          # move with the manifests or `VERSION` lies at runtime.
-          for f in packages/*/src/version.ts; do
-            sed -i "s/^export const VERSION = '.*';$/export const VERSION = '$VERSION';/" "$f"
-          done
-          git diff --stat
-
-      - name: Verify the version stamp is consistent
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          # Cheap insurance against a half-applied bump reaching npm, where it
-          # cannot be undone.
-          for f in packages/*/package.json; do
+          fail=0
+          for f in package.json packages/*/package.json; do
             actual=$(node -p "require('./$f').version")
-            [ "$actual" = "$VERSION" ] || { echo "::error::$f is $actual, expected $VERSION"; exit 1; }
+            [ "$actual" = "$VERSION" ] \
+              || { echo "::error::$f is $actual, expected $VERSION"; fail=1; }
           done
           for f in packages/*/src/version.ts; do
             grep -q "export const VERSION = '$VERSION';" "$f" \
-              || { echo "::error::$f was not stamped to $VERSION"; exit 1; }
+              || { echo "::error::$f is not stamped to $VERSION"; fail=1; }
           done
-
-      - name: Update lockfile
-        run: pnpm install --lockfile-only --ignore-scripts
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::land the version bump on main first, then re-dispatch"
+            exit 1
+          fi
 
       # @diagrid/n8n's five peers are never real installs (see
       # packages/n8n/package.json's own "//peerDependenciesMeta" note) —
@@ -377,7 +364,7 @@ jobs:
             --provenance --access public --tag "$NPM_DIST_TAG"
 
       # Only now that npm is consistent: record the release in git.
-      - name: Commit, tag and release
+      - name: Tag and release
         if: ${{ !inputs.dry_run }}
         env:
           VERSION: ${{ inputs.version }}
@@ -385,13 +372,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json packages/*/package.json packages/*/src/version.ts pnpm-lock.yaml
-          if git diff --cached --quiet; then
-            echo "main is already at $VERSION — nothing to commit"
-          else
-            git commit -m "chore: release v$VERSION"
-            git push origin HEAD:main
-          fi
           git tag -a "v$VERSION" -m "Release v$VERSION"
           git push origin "v$VERSION"
 
