@@ -198,8 +198,8 @@ importers:
         version: link:../core
     devDependencies:
       '@mastra/core':
-        specifier: 1.57.0
-        version: 1.57.0(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.4)(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)
+        specifier: 1.69.0
+        version: 1.69.0(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.4)(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod-to-json-schema@3.25.2(zod@4.4.3))(zod@4.4.3)
       tsup:
         specifier: 8.5.1
         version: 8.5.1(postcss@8.5.26)(supports-color@7.2.0)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0)
