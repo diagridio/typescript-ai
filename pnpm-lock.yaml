@@ -7,6 +7,7 @@ settings:
 overrides:
   fast-uri: ^3.1.7
   js-yaml: ^3.15.2
+  proxy-addr: ^2.0.8
 
 importers:
 
@@ -19,11 +20,11 @@ importers:
         specifier: 10.0.1
         version: 10.0.1(eslint@10.9.1(supports-color@7.2.0))
       '@grpc/grpc-js':
-        specifier: 1.14.4
-        version: 1.14.4
+        specifier: 1.14.5
+        version: 1.14.5
       '@mastra/core':
         specifier: 1.69.0
-        version: 1.69.0(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.4)(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)
+        version: 1.69.0(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.5)(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)
       '@opentelemetry/api':
         specifier: 1.9.1
         version: 1.9.1
@@ -117,7 +118,7 @@ importers:
         version: link:../../packages/mastra
       '@mastra/core':
         specifier: 1.69.0
-        version: 1.69.0(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.4)(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)
+        version: 1.69.0(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.5)(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -148,8 +149,8 @@ importers:
         specifier: 3.18.0
         version: 3.18.0(supports-color@7.2.0)
       '@grpc/grpc-js':
-        specifier: 1.14.4
-        version: 1.14.4
+        specifier: 1.14.5
+        version: 1.14.5
       '@opentelemetry/api':
         specifier: 1.9.1
         version: 1.9.1
@@ -199,7 +200,7 @@ importers:
     devDependencies:
       '@mastra/core':
         specifier: 1.69.0
-        version: 1.69.0(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.4)(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)
+        version: 1.69.0(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.5)(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)
       tsup:
         specifier: 8.5.1
         version: 8.5.1(postcss@8.5.26)(supports-color@7.2.0)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0)
@@ -707,8 +708,8 @@ packages:
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
 
-  '@grpc/grpc-js@1.14.4':
-    resolution: {integrity: sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==}
+  '@grpc/grpc-js@1.14.5':
+    resolution: {integrity: sha512-7VZM+SVdEcUUqSQeNI3zM8Qs/BhQKZndPo2h5VkYkAM8Iz0wJIa8mKV5ekQGqG8UUsnkQ0NMxIxwkIHYvj0qOw==}
     engines: {node: '>=12.10.0'}
 
   '@grpc/proto-loader@0.8.1':
@@ -2600,8 +2601,8 @@ packages:
     resolution: {integrity: sha512-/FPD0nUc9jH6rfFjji9IBqOz4pcSE3CsT1m7Ep6Mdb0LxSUMj8hgl6GomOvZzpNpAqqGaXA0P3VSrZLFzIhQrw==}
     engines: {node: '>=12.0.0'}
 
-  proxy-addr@2.0.7:
-    resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
+  proxy-addr@2.0.8:
+    resolution: {integrity: sha512-5nnx0yGyVUcY6t9RnWcARWtwT9F1D8O9rt08htPvnd49W1IgZtmLkhu9WfMzQj1cFxjHIO6connUNVW5k7AVyQ==}
     engines: {node: '>= 0.10'}
 
   punycode@2.3.1:
@@ -3163,21 +3164,21 @@ packages:
 
 snapshots:
 
-  '@a2a-js/sdk@0.3.14(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.4)(express@5.2.1(supports-color@7.2.0))':
+  '@a2a-js/sdk@0.3.14(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.5)(express@5.2.1(supports-color@7.2.0))':
     dependencies:
       uuid: 11.1.1
     optionalDependencies:
       '@bufbuild/protobuf': 2.13.0
-      '@grpc/grpc-js': 1.14.4
+      '@grpc/grpc-js': 1.14.5
       express: 5.2.1(supports-color@7.2.0)
 
-  '@a2a-js/sdk@1.0.1(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.4)(express@5.2.1(supports-color@7.2.0))':
+  '@a2a-js/sdk@1.0.1(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.5)(express@5.2.1(supports-color@7.2.0))':
     dependencies:
       jose: 6.2.12
       uuid: 11.1.1
     optionalDependencies:
       '@bufbuild/protobuf': 2.13.0
-      '@grpc/grpc-js': 1.14.4
+      '@grpc/grpc-js': 1.14.5
       express: 5.2.1(supports-color@7.2.0)
 
   '@ai-sdk/provider-utils@4.0.40(zod@4.4.3)':
@@ -3249,7 +3250,7 @@ snapshots:
       '@connectrpc/connect-node': 2.1.2(@bufbuild/protobuf@2.13.0)(@connectrpc/connect@2.1.2(@bufbuild/protobuf@2.13.0))
       '@connectrpc/connect-web': 2.1.2(@bufbuild/protobuf@2.13.0)(@connectrpc/connect@2.1.2(@bufbuild/protobuf@2.13.0))
       '@dapr/durabletask-js': 1.0.0
-      '@grpc/grpc-js': 1.14.4
+      '@grpc/grpc-js': 1.14.5
       '@js-temporal/polyfill': 0.3.0
       '@types/google-protobuf': 3.15.12
       '@types/node-fetch': 2.6.13
@@ -3264,7 +3265,7 @@ snapshots:
 
   '@dapr/durabletask-js@1.0.0':
     dependencies:
-      '@grpc/grpc-js': 1.14.4
+      '@grpc/grpc-js': 1.14.5
       google-protobuf: 3.21.4
 
   '@esbuild/aix-ppc64@0.27.7':
@@ -3480,7 +3481,7 @@ snapshots:
       '@fastify/forwarded': 3.0.2
       ipaddr.js: 2.5.0
 
-  '@grpc/grpc-js@1.14.4':
+  '@grpc/grpc-js@1.14.5':
     dependencies:
       '@grpc/proto-loader': 0.8.1
       '@js-sdsl/ordered-map': 4.4.2
@@ -3542,10 +3543,10 @@ snapshots:
     dependencies:
       '@lukeed/csprng': 1.1.0
 
-  '@mastra/core@1.69.0(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.4)(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)':
+  '@mastra/core@1.69.0(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.5)(express@5.2.1(supports-color@7.2.0))(supports-color@7.2.0)(zod@4.4.3)':
     dependencies:
-      '@a2a-js/sdk-v0_3': '@a2a-js/sdk@0.3.14(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.4)(express@5.2.1(supports-color@7.2.0))'
-      '@a2a-js/sdk-v1': '@a2a-js/sdk@1.0.1(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.4)(express@5.2.1(supports-color@7.2.0))'
+      '@a2a-js/sdk-v0_3': '@a2a-js/sdk@0.3.14(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.5)(express@5.2.1(supports-color@7.2.0))'
+      '@a2a-js/sdk-v1': '@a2a-js/sdk@1.0.1(@bufbuild/protobuf@2.13.0)(@grpc/grpc-js@1.14.5)(express@5.2.1(supports-color@7.2.0))'
       '@ai-sdk/provider-utils-v6': '@ai-sdk/provider-utils@4.0.40(zod@4.4.3)'
       '@ai-sdk/provider-utils-v7': '@ai-sdk/provider-utils@5.0.13(zod@4.4.3)'
       '@ai-sdk/provider-v5': '@ai-sdk/provider@2.0.3'
@@ -3633,7 +3634,7 @@ snapshots:
 
   '@opentelemetry/otlp-grpc-exporter-base@0.221.0(@opentelemetry/api@1.9.1)':
     dependencies:
-      '@grpc/grpc-js': 1.14.4
+      '@grpc/grpc-js': 1.14.5
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/core': 2.10.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/otlp-exporter-base': 0.221.0(@opentelemetry/api@1.9.1)
@@ -4546,7 +4547,7 @@ snapshots:
       on-finished: 2.4.1
       parseurl: 1.3.3
       path-to-regexp: 0.1.13
-      proxy-addr: 2.0.7
+      proxy-addr: 2.0.8
       qs: 6.15.3
       range-parser: 1.2.1
       safe-buffer: 5.2.1
@@ -4581,7 +4582,7 @@ snapshots:
       on-finished: 2.4.1
       once: 1.4.0
       parseurl: 1.3.3
-      proxy-addr: 2.0.7
+      proxy-addr: 2.0.8
       qs: 6.15.3
       range-parser: 1.3.0
       router: 2.2.0(supports-color@7.2.0)
@@ -5515,7 +5516,7 @@ snapshots:
       '@types/node': 26.2.0
       long: 5.3.2
 
-  proxy-addr@2.0.7:
+  proxy-addr@2.0.8:
     dependencies:
       forwarded: 0.2.0
       ipaddr.js: 1.9.1
