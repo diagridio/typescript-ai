@@ -97,7 +97,7 @@
   "devDependencies": {
     "tsup": "8.5.1",
     "typescript": "6.0.3",
-    "zod": "4.4.3"
+    "zod": "4.6.5"
   },
   "//peerDependenciesMeta": [
     "`optional: true` here is a pnpm-install-time workaround, not a real",
