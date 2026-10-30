@@ -14,6 +14,14 @@
  * ambient environment deterministic, since several modules read `OTEL_*` and
  * `DAPR_*` at call time and a developer's shell should not change test
  * outcomes.
+ *
+ * `DIAGRID_NO_ANALYTICS` is forced on for the same reason the Python
+ * sibling's root `tests/conftest.py` blanks `USAGE_ENDPOINT`: every
+ * `BaseWorkflowRunner` construction calls `reportUsage`
+ * (`packages/core/src/analytics.ts`), and without this no test run — local or
+ * CI — would stay off the real Scarf endpoint. `tests/core/analytics.test.ts`
+ * deletes the variable and stubs `fetch` in its own `beforeEach` to exercise
+ * the reporter directly.
  */
 
 import { afterEach, beforeEach } from 'vitest';
@@ -35,6 +43,9 @@ const MANAGED_ENV_VARS = [
   'DAPR_HTTP_ENDPOINT',
   'DIAGRID_DP_SENTRY_ISSUER',
   'DIAGRID_DP_SENTRY_AUDIENCE',
+  // Keeps the whole unit suite out of production usage analytics — see this
+  // file's own doc comment.
+  'DIAGRID_NO_ANALYTICS',
 ] as const;
 
 let saved: Record<string, string | undefined> = {};
@@ -46,6 +57,10 @@ beforeEach(() => {
   for (const key of MANAGED_ENV_VARS) {
     delete process.env[key];
   }
+  // See this file's own doc comment: no unit test may reach the real Scarf
+  // endpoint. Tests that exercise the reporter itself delete this in their
+  // own `beforeEach`.
+  process.env['DIAGRID_NO_ANALYTICS'] = '1';
 });
 
 afterEach(() => {
