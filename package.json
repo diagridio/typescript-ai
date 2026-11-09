@@ -37,11 +37,11 @@
     "@mastra/core": "1.71.0",
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/exporter-trace-otlp-grpc": "0.221.0",
-    "@opentelemetry/resources": "2.10.0",
-    "@opentelemetry/sdk-trace-node": "2.10.0",
+    "@opentelemetry/resources": "2.12.0",
+    "@opentelemetry/sdk-trace-node": "2.12.0",
     "@opentelemetry/semantic-conventions": "1.43.0",
     "@types/express": "5.0.6",
-    "@types/node": "26.2.0",
+    "@types/node": "26.6.5",
     "@vitest/coverage-v8": "4.1.10",
     "eslint": "10.9.1",
     "eslint-config-prettier": "10.1.8",
@@ -54,9 +54,9 @@
     "prettier": "3.9.6",
     "tsup": "8.5.1",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.67.0",
+    "typescript-eslint": "8.72.0",
     "vitest": "4.1.11",
-    "zod": "4.4.3"
+    "zod": "4.6.7"
   },
   "//devDependencies": [
     "The @opentelemetry/* and @grpc/grpc-js entries are here for the test",
