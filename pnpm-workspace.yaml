@@ -58,3 +58,7 @@ overrides:
   # @mastra/core > @a2a-js/sdk) carries the same advisory and is fixed in 2.4.0.
   body-parser@1: ^1.20.9
   body-parser@2: ^2.4.0
+  # Same gate: re2js 2.8.6 (GHSA-gg6h-894w-4m9c, quadratic-time lookbehind
+  # matching, fixed in 2.8.7) arrives with @mastra/core 1.71.0, which declares
+  # `^2.8.6`, so this stays inside the range Mastra was built for.
+  re2js: ^2.8.7
