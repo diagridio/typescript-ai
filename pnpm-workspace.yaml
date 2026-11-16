@@ -47,3 +47,14 @@ overrides:
   # `^3.13.1` — so this is a same-major patch bump. Nothing in the workspace
   # wants js-yaml 4 or 5, so the unscoped override cannot strand another major.
   js-yaml: ^3.15.2
+  # Same gate: proxy-addr <2.0.8 (IPv4-mapped IPv6 trust-subnet spoofing,
+  # critical, fixed in 2.0.8) comes in through express 4 (@dapr/dapr) and
+  # express 5 (@mastra/core > @a2a-js/sdk). Both declare `~2.0.7`, so 2.0.8 is a
+  # same-minor patch bump.
+  proxy-addr: ^2.0.8
+  # Same gate: body-parser 1.20.6 (GHSA-27r3-jxmh-p828, fixed in 1.20.9) is
+  # pulled in by @dapr/dapr (`^1.19.0`) and its express 4 (`~1.20.5`), so this
+  # is a same-minor patch bump. The 2.x line (express 5 declares `^2.2.1`, via
+  # @mastra/core > @a2a-js/sdk) carries the same advisory and is fixed in 2.4.0.
+  body-parser@1: ^1.20.9
+  body-parser@2: ^2.4.0
