@@ -210,6 +210,30 @@ describe('buildUrl', () => {
     }
   });
 
+  it.each([
+    ['x64', 'linux', 'x86_64'],
+    ['x64', 'darwin', 'x86_64'],
+    ['arm64', 'linux', 'aarch64'],
+    ['arm64', 'darwin', 'arm64'],
+    ['ia32', 'win32', 'x86'],
+  ])(
+    'reports %s on %s as %s, like platform.machine()',
+    (arch, platform, label) => {
+      const archSpy = vi
+        .spyOn(process, 'arch', 'get')
+        .mockReturnValue(arch as NodeJS.Architecture);
+      const platformSpy = vi
+        .spyOn(process, 'platform', 'get')
+        .mockReturnValue(platform as NodeJS.Platform);
+      try {
+        expect(analytics.buildUrl('diagrid-test')).toContain(`arch=${label}&`);
+      } finally {
+        archSpy.mockRestore();
+        platformSpy.mockRestore();
+      }
+    }
+  );
+
   it('lets caller dimensions override defaults, and drops empty ones', () => {
     const url = analytics.buildUrl('diagrid-test', {
       target: 'catalyst',

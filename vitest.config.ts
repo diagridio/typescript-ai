@@ -75,6 +75,12 @@ export default defineConfig({
           // `OTEL_*` from the environment, which is exactly the configuration
           // an integration run needs to keep.
           environmentOptions: {},
+          // Keep every integration and e2e run off the real Scarf endpoint.
+          // `DaprWorkflowAgentRunner` calls `reportUsage` when it is built,
+          // and these runs build it. `env` sets the variable in the test
+          // worker and in every child process it spawns, and it adds no setup
+          // file. `tests/e2e/analytics-optout.integration.test.ts` checks it.
+          env: { DIAGRID_NO_ANALYTICS: '1' },
           // Real sidecars, real models: minutes, not seconds. Run serially so
           // concurrent workflows cannot contend on one Dapr sidecar.
           testTimeout: 300_000,

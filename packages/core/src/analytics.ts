@@ -92,6 +92,16 @@ const PLATFORM_LABELS: Readonly<Record<string, string>> = {
   win32: 'windows',
 };
 
+/**
+ * Maps a Node architecture to the label the model (`platform.machine()`)
+ * reports. `arm64` stays `arm64` on macOS and Windows, where Python reports
+ * it that way, and becomes `aarch64` on Linux.
+ */
+const ARCH_LABELS: Readonly<Record<string, string>> = {
+  x64: 'x86_64',
+  ia32: 'x86',
+};
+
 /** Extra query-string dimensions a caller of {@link reportUsage} may supply. */
 export type UsageDimensions = Record<
   string,
@@ -159,6 +169,13 @@ function detectOs(): string {
   return (PLATFORM_LABELS[process.platform] ?? process.platform).toLowerCase();
 }
 
+function detectArch(): string {
+  if (process.arch === 'arm64' && process.platform === 'linux') {
+    return 'aarch64';
+  }
+  return ARCH_LABELS[process.arch] ?? process.arch;
+}
+
 function cleanDimension(value: NonNullable<UsageDimensions[string]>): string {
   return String(value).trim().slice(0, DIMENSION_MAX_LEN);
 }
@@ -178,7 +195,7 @@ export function buildUrl(
     package: pkg,
     version: VERSION,
     os: detectOs(),
-    arch: process.arch,
+    arch: detectArch(),
     node_version: process.version.replace(/^v/, ''),
     target: detectTarget(),
     ci: isRunningInCi() ? 'true' : 'false',
