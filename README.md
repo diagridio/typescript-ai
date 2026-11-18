@@ -77,15 +77,16 @@ Install the shared runtime plus the adapter for your framework:
 pnpm add @diagrid/agent-mastra @mastra/core zod
 
 # For n8n (attaches to an existing n8n install)
-pnpm add @diagrid/n8n
+pnpm add @diagrid/n8n zod
 ```
 
 `@diagrid/agent-core` comes in as a dependency of the adapter; you only need to
 install it directly if you are writing an adapter of your own. The framework
 SDK (`@mastra/core`) and `zod` are **peer dependencies**, so your application
 controls their versions and installing one adapter never pulls in another
-framework. Both must be named on the install line, since a peer dependency is
-not installed for you.
+framework. Name them on the install line, since a peer dependency is not
+installed for you. The n8n packages that `@diagrid/n8n` peers on come from your
+existing n8n install, so only `zod` needs naming there.
 
 ## Prerequisites
 
