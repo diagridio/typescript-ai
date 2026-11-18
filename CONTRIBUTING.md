@@ -201,10 +201,11 @@ Use the `dry_run` input first — it does everything except commit, tag, release
 and publish, and uploads the tarballs so you can inspect exactly what would
 ship.
 
-`0.1.0` of the agent packages was published by hand, privately, so the packages
-would exist — a trusted publisher can only be added on a package's own settings
-page — and so carries no provenance attestation. Releases since then are public
-and carry provenance; `0.2.0` is the current version on npm.
+`0.1.0` of `@diagrid/agent-core`, `@diagrid/agent-mastra` and `@diagrid/n8n` was
+published by hand so each package would exist — a trusted publisher can only be
+added on a package's own settings page — and so carries no provenance
+attestation. `0.1.1` and `0.2.0` of all three were published by this workflow
+and carry provenance; `0.2.0` is the current version of each on npm.
 
 The workflow is wired for npm OIDC trusted publishing (`id-token: write`, Node 24
 for npm ≥ 11.5.1, `NODE_AUTH_TOKEN` commented out), so it needs no repository

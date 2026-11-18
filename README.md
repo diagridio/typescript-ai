@@ -28,7 +28,8 @@ has a permanent free tier.
 
 ## Packages
 
-All three packages are public on npm at `0.2.0`, published with provenance:
+All three packages are public on npm. Each is at `0.2.0`, and every version from
+`0.1.1` on carries an npm provenance attestation:
 
 | Package                                                                        | What it is                                                    |
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------- |
