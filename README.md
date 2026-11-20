@@ -76,7 +76,10 @@ Install the shared runtime plus the adapter for your framework:
 # For Mastra
 pnpm add @diagrid/agent-mastra @mastra/core zod
 
-# For n8n (attaches to an existing n8n install)
+# For n8n (attaches to an existing n8n install). Run this in the directory of
+# your n8n install and start n8n from there: `--require @diagrid/n8n/register`
+# resolves from that directory's node_modules, so installing it in an
+# unrelated project fails with a module-not-found error when n8n starts.
 pnpm add @diagrid/n8n zod
 ```
 
