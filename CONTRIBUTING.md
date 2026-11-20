@@ -137,12 +137,37 @@ always builds first.
 
 `git push --no-verify` skips it when you need to.
 
-## Adding a framework adapter
+## Adding another framework
 
-See [the README](README.md#adding-another-framework). Short version: one new
-`packages/<framework>/` following `packages/mastra`'s module layout, one entry in
-`SupportedFrameworks`, one entry in the `ADAPTERS` guard table, one Dependabot
-block, one publish step.
+The repository is laid out so a second framework is a small, well-bounded
+change. Everything framework-specific lives in one package:
+
+1. `mkdir packages/<framework>` and copy `packages/mastra`'s shape, which is
+   deliberately small: `bridge.ts` (drive the framework one step at a time),
+   `mapper.ts` (`BaseAgentMapper` implementation), `runner.ts` (public
+   entrypoint, mostly wiring), `state.ts` (a `DaprAgentCheckpointer` subclass
+   supplying the key prefix), `version.ts`, `index.ts`, `README.md`.
+
+   You do **not** write the durable agent loop. The orchestrator, its
+   activities, the retry behaviour and every Zod schema that crosses the
+   workflow boundary live in `@diagrid/agent-core` (`src/agent/`), because none
+   of them mention a framework. Only `bridge.ts` and `mapper.ts` are genuinely
+   framework-specific.
+
+2. Add the framework to `SupportedFrameworks` in
+   `packages/core/src/types/frameworks.ts`.
+3. Add an entry to `ADAPTERS` in
+   `tests/guards/cross-framework-imports.test.ts` — that guard fails until you
+   do, which is the point.
+4. Add a `package-ecosystem: npm` block for the new directory in
+   `.github/dependabot.yml`, and a publish step in
+   `.github/workflows/npm-release.yaml`.
+5. Add an `examples/<framework>/` directory. Examples are workspace members and
+   are type-checked, so they keep the adapter's public API honest — the build
+   breaks the moment it drifts.
+
+The framework SDK must be a **peer** dependency, never a hard one — the
+isolation guard enforces it.
 
 ## Code conventions
 
@@ -176,10 +201,11 @@ Use the `dry_run` input first — it does everything except commit, tag, release
 and publish, and uploads the tarballs so you can inspect exactly what would
 ship.
 
-`0.1.0` of both packages is already on npm, **private**, published by hand from a
-branch so the packages would exist — a trusted publisher can only be added on a
-package's own settings page. Those tarballs therefore carry no provenance
-attestation: `--provenance` needs the publish to happen inside GitHub Actions.
+`0.1.0` of `@diagrid/agent-core`, `@diagrid/agent-mastra` and `@diagrid/n8n` was
+published by hand so each package would exist — a trusted publisher can only be
+added on a package's own settings page — and so carries no provenance
+attestation. `0.1.1` and `0.2.0` of all three were published by this workflow
+and carry provenance; `0.2.0` is the current version of each on npm.
 
 The workflow is wired for npm OIDC trusted publishing (`id-token: write`, Node 24
 for npm ≥ 11.5.1, `NODE_AUTH_TOKEN` commented out), so it needs no repository
@@ -187,5 +213,4 @@ secret on that path; the `NPM_TOKEN` fallback in its header is only for the othe
 one. Whether the trusted publisher is registered is not visible from the CLI —
 the confirmation is an attestation appearing on the first published version.
 
-Note that both publish steps pass `--access public`, so the first release from
-`main` makes the packages world-readable.
+Every publish step passes `--access public`.

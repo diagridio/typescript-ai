@@ -1,36 +1,49 @@
 # Durable Workflows for TypeScript AI agents
 
+Durable execution for TypeScript AI agents on Dapr Workflows.
+
+[![npm: @diagrid/agent-mastra](https://img.shields.io/npm/v/@diagrid/agent-mastra?label=%40diagrid%2Fagent-mastra)](https://www.npmjs.com/package/@diagrid/agent-mastra)
+[![npm: @diagrid/n8n](https://img.shields.io/npm/v/@diagrid/n8n?label=%40diagrid%2Fn8n)](https://www.npmjs.com/package/@diagrid/n8n)
+[![Build](https://github.com/diagridio/typescript-ai/actions/workflows/build.yaml/badge.svg)](https://github.com/diagridio/typescript-ai/actions/workflows/build.yaml)
+[![License: BUSL-1.1](https://img.shields.io/badge/license-BUSL--1.1-blue)](LICENSE.md)
+
 **Make your AI agents resilient to failure and outages**
 
-`@diagrid/agent-*` is a set of extension packages for the open-source
-[Dapr](https://github.com/dapr/dapr) project that make TypeScript AI agents
-durable and fault-tolerant. Each adapter wraps an agent framework in a Dapr
-Workflow so agents recover from crashes, persist state across restarts, and
-survive provider outages without re-running (and re-paying for) work they had
-already completed.
+`@diagrid/*` is a set of extension packages for the open-source
+[Dapr](https://github.com/dapr/dapr) project, built by Diagrid, that give
+TypeScript AI agents and workflows durable execution. Each adapter runs a
+framework on Dapr Workflows so work recovers from crashes, persists state
+across restarts, and survives provider outages without re-running (and
+re-paying for) steps that already completed.
 
 This is the TypeScript sibling of
 [`diagridio/python-ai`](https://github.com/diagridio/python-ai),
 [`diagridio/dotnet-ai`](https://github.com/diagridio/dotnet-ai),
-[`diagridio/go-ai`](https://github.com/diagridio/go-ai) and
-[`diagridio/java-ai`](https://github.com/diagridio/java-ai).
+[`diagridio/go-ai`](https://github.com/diagridio/go-ai),
+[`diagridio/java-ai`](https://github.com/diagridio/java-ai) and
+[`diagridio/rust-ai`](https://github.com/diagridio/rust-ai).
 
-Get started with [Diagrid Catalyst for free](https://diagrid.ws/get-catalyst).
+Get started with [Diagrid for free](https://diagrid.ws/get-catalyst). Diagrid
+has a permanent free tier.
 
-> ### Status: working, published privately
->
-> The [Mastra](https://mastra.ai) adapter runs real agent turns as Dapr
-> Workflows, verified end to end against both a local sidecar and Diagrid
-> Catalyst: tool calls execute as separate checkpointed activities, and a process
-> killed mid-turn resumes without recomputing completed work. See
-> [`packages/mastra/README.md`](packages/mastra/README.md) for the detail.
->
-> `0.1.0` of both packages is on npm but **private**, published by hand so the
-> packages would exist and npm trusted publishing could be configured against
-> them. The first release through
-> [the workflow](.github/workflows/npm-release.yaml) is `0.1.1`, and it publishes
-> with `--access public` — that is the point at which these become installable by
-> anyone.
+## Packages
+
+All three packages are public on npm. Each is at `0.2.0`, and every version from
+`0.1.1` on carries an npm provenance attestation:
+
+| Package                                                                        | What it is                                                    |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| [`@diagrid/agent-mastra`](https://www.npmjs.com/package/@diagrid/agent-mastra) | The [Mastra](https://mastra.ai) agent adapter                 |
+| [`@diagrid/n8n`](https://www.npmjs.com/package/@diagrid/n8n)                   | Durable execution of [n8n](https://n8n.io) workflow node runs |
+| [`@diagrid/agent-core`](https://www.npmjs.com/package/@diagrid/agent-core)     | The shared runtime both build on                              |
+
+The Mastra adapter runs real agent turns as Dapr Workflows, verified end to end
+against both a local sidecar and Diagrid: tool calls execute as separate
+checkpointed activities, and a process killed mid-turn resumes without
+recomputing completed work. See
+[`packages/mastra/README.md`](packages/mastra/README.md) for the detail, and
+[`packages/n8n/README.md`](packages/n8n/README.md) for the n8n integration and
+its current gaps.
 
 ## Community
 
@@ -47,7 +60,13 @@ with the team and other users.
 - **Observability:** OpenTelemetry traces across agent execution, tool calls and
   state transitions — a no-op until you point it at a collector.
 - **Framework-agnostic core:** One shared runtime, one small adapter per
-  framework. [Mastra](https://mastra.ai) is the first.
+  framework. [Mastra](https://mastra.ai) is the agent framework supported
+  today.
+- **n8n:** `@diagrid/n8n` attaches to a stock [n8n](https://n8n.io) process at
+  load time (`NODE_OPTIONS="--require @diagrid/n8n/register" n8n start`), with
+  no fork and no upstream changes. Each node run becomes a durable Dapr
+  activity guarded by an idempotency ledger, so a multi-node workflow resumes
+  from its last completed node after a crash.
 
 ## Installation
 
@@ -56,21 +75,28 @@ Install the shared runtime plus the adapter for your framework:
 ```bash
 # For Mastra
 pnpm add @diagrid/agent-mastra @mastra/core zod
+
+# For n8n (attaches to an existing n8n install). Run this in the directory of
+# your n8n install and start n8n from there: `--require @diagrid/n8n/register`
+# resolves from that directory's node_modules, so installing it in an
+# unrelated project fails with a module-not-found error when n8n starts.
+pnpm add @diagrid/n8n zod
 ```
 
 `@diagrid/agent-core` comes in as a dependency of the adapter; you only need to
 install it directly if you are writing an adapter of your own. The framework
 SDK (`@mastra/core`) and `zod` are **peer dependencies**, so your application
 controls their versions and installing one adapter never pulls in another
-framework. Both must be named on the install line, since a peer dependency is
-not installed for you.
+framework. Name them on the install line, since a peer dependency is not
+installed for you. The n8n packages that `@diagrid/n8n` peers on come from your
+existing n8n install, so only `zod` needs naming there.
 
 ## Prerequisites
 
 - **Node.js:** 22.13 or newer (Node 20 is end-of-life; `@mastra/core` requires
   ≥ 22.13)
 - **Dapr:** a Dapr sidecar, either self-hosted (`dapr init`, needs Docker) or
-  managed via [Diagrid Catalyst](https://diagrid.ws/get-catalyst)
+  managed via [Diagrid](https://diagrid.ws/get-catalyst)
 - **A state store component** for agent memory (Redis, CosmosDB, Postgres, …)
 
 ## Quickstart
@@ -102,13 +128,13 @@ console.log(result.text);
 await runner.shutdown();
 ```
 
-Run it under a sidecar — either self-hosted Dapr or managed Catalyst:
+Run it under a sidecar — either self-hosted Dapr or managed by Diagrid:
 
 ```bash
 # Local Dapr: components come from ./resources
 dapr run --app-id support-agent --resources-path ./resources -- node dist/agent.js
 
-# Diagrid Catalyst: components come from the Catalyst project
+# Diagrid: components come from the Diagrid project
 diagrid dev run --app-id support-agent -- node dist/agent.js
 ```
 
@@ -124,7 +150,7 @@ to orchestrate agent execution:
 
 1. **Orchestration** — the agent's control loop becomes a workflow, registered
    under the canonical name `dapr.<framework>.<AgentName>.workflow` (identical
-   to the scheme the Python, Go, .NET and Java SDKs use, so one Catalyst project
+   to the scheme the Python, Go, .NET and Java SDKs use, so one Diagrid project
    can host agents in any of them).
 2. **Activities** — every LLM call and every tool execution becomes a durable
    activity. Activities may be non-deterministic; the orchestrator may not.
@@ -146,7 +172,12 @@ packages/core      @diagrid/agent-core    shared runtime: the durable agent
                                           contract, workflow naming, state,
                                           checkpointer, pub/sub, telemetry
 packages/mastra    @diagrid/agent-mastra  the Mastra adapter
-examples/mastra                           runnable scripts, type-checked in CI
+packages/n8n       @diagrid/n8n           durable n8n workflow node runs,
+                                          attached via --require
+examples/mastra                           runnable Mastra scripts, type-checked
+                                          in CI
+examples/n8n                              n8n crash-recovery and regression
+                                          scripts
 tests/             mirrors the source tree; `tests/guards/` holds the two
                    invariants CI enforces directly
 ```
@@ -154,41 +185,10 @@ tests/             mirrors the source tree; `tests/guards/` holds the two
 Start with [`examples/mastra/`](examples/mastra/) — `pnpm inspect` there needs no
 API key and no sidecar, and prints exactly what Diagrid publishes about an agent.
 
-## Adding another framework
-
-The repository is laid out so a second framework is a small, well-bounded
-change. Everything framework-specific lives in one package:
-
-1. `mkdir packages/<framework>` and copy `packages/mastra`'s shape, which is
-   deliberately small: `bridge.ts` (drive the framework one step at a time),
-   `mapper.ts` (`BaseAgentMapper` implementation), `runner.ts` (public
-   entrypoint, mostly wiring), `state.ts` (a `DaprAgentCheckpointer` subclass
-   supplying the key prefix), `version.ts`, `index.ts`, `README.md`.
-
-   You do **not** write the durable agent loop. The orchestrator, its
-   activities, the retry behaviour and every Zod schema that crosses the
-   workflow boundary live in `@diagrid/agent-core` (`src/agent/`), because none
-   of them mention a framework. Only `bridge.ts` and `mapper.ts` are genuinely
-   framework-specific.
-
-2. Add the framework to `SupportedFrameworks` in
-   `packages/core/src/types/frameworks.ts`.
-3. Add an entry to `ADAPTERS` in
-   `tests/guards/cross-framework-imports.test.ts` — that guard fails until you
-   do, which is the point.
-4. Add a `package-ecosystem: npm` block for the new directory in
-   `.github/dependabot.yml`, and a publish step in
-   `.github/workflows/npm-release.yaml`.
-5. Add an `examples/<framework>/` directory. Examples are workspace members and
-   are type-checked, so they keep the adapter's public API honest — the build
-   breaks the moment it drifts.
-
-The framework SDK must be a **peer** dependency, never a hard one — the
-isolation guard enforces it.
-
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md), including
+[adding another framework](CONTRIBUTING.md#adding-another-framework).
 
 ```bash
 pnpm install
