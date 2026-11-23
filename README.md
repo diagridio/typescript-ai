@@ -38,6 +38,9 @@ Have questions, hit a bug, or want to share what you're building? Join the
 [Diagrid Community Discord](https://diagrid.ws/diagrid-community) to connect
 with the team and other users.
 
+To report a security vulnerability, do not use the Discord or a public issue:
+follow [SECURITY.md](SECURITY.md).
+
 ## Features
 
 - **Durability:** Agent state is persisted in the database of your choice. If
