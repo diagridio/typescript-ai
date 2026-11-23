@@ -20,6 +20,7 @@ import type {
 } from '@dapr/dapr';
 import type { WorkflowClientOptions } from '@dapr/dapr/types/workflow/WorkflowClientOption';
 
+import { reportUsage } from '../analytics';
 import type { AgentMapper } from '../mapping/base';
 import { DaprStateStore } from '../state/store';
 import {
@@ -78,6 +79,26 @@ export abstract class BaseWorkflowRunner {
     if (!options.name) {
       throw new Error('BaseWorkflowRunner requires a non-empty agent name');
     }
+
+    // One anonymous usage event per process, fire-and-forget: never blocks
+    // this constructor and never throws. See `../analytics.ts`'s own module
+    // doc and the "Usage analytics" section of `../../README.md`, including
+    // how to opt out.
+    //
+    // `framework_version` is deliberately omitted, unlike the Python sibling's
+    // `runner.py`, which resolves it via `importlib.metadata`. Doing the
+    // equivalent here — a guarded `require('@mastra/core/package.json')` (or
+    // any other peer) inside an adapter — would be a real runtime import of
+    // that peer as far as `tests/guards/cross-framework-imports.test.ts` is
+    // concerned: its AST-based `importedModules` check flags any string
+    // literal passed to a call or `new` expression, specifically because an
+    // earlier version of that guard was bypassed by exactly this
+    // `createRequire(...)('@mastra/core')` pattern (see the guard's own doc
+    // comment). `packages/mastra/src/mapper.ts` states the same rule for the
+    // same reason: `@mastra/core` is a peer dependency, so no module in this
+    // package tree may import it at runtime, including through `require`.
+    reportUsage('@diagrid/agent-core', { kind: 'agent', framework });
+
     this.framework = framework;
     this.name = options.name;
     this.host = options.host;
